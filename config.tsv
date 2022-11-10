@@ -1,8 +1,8 @@
 variable_name	variable_type	variable_value
-included_samples	file	data/samples.txt
+included_samples	file	data/included_samples.txt
 read_count_matrix	file	data/gene_reads.gct.gz
 normalized_count_matrix	file	data/gene_tpm.gct.gz
-design	file	design.tsv
+design	file	data/design.tsv
 gene_annotations	file	data/gene_annotations.tsv
 clean_counts	file	clean_counts.tsv
 count_threshold	parameter	6

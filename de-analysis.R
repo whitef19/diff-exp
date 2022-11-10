@@ -8,12 +8,8 @@
 # 
 # Libraries
 suppressMessages(library(edgeR))
-suppressMessages(library(isva))
-suppressMessages(library(SmartSVA))
 suppressMessages(library(limma))
-suppressMessages(library(ggplot2))
-suppressMessages(library(ggpubr))
-suppressMessages(require(ggrepel))
+
 #--------------------------------
 
 usage = function(errM) {
@@ -118,6 +114,9 @@ filtering = function(config, design, included_samples, normalized_count_included
 
 run_sva = function(dataObject, design, config){
 
+	suppressMessages(library(isva))
+	suppressMessages(library(SmartSVA))
+
 	model = paste0("~ ", config$parameters$model )
 	mm <- model.matrix(eval(parse(text=model)), data=design) 
 	cat(paste0("# Compute surrugate variables\n", " Model: ", model ,"\n"), file=log)
@@ -192,6 +191,8 @@ run_limma = function(dataObject, design, config, normalized_count_included) {
 
 
 create_figures = function(results, normalized_count_included){
+	suppressMessages(library(ggplot2))
+	suppressMessages(require(ggrepel))
 	
 	results$absFC = abs(results$logFC)
 	logFC_threshold <- (mean(results$absFC) + 5 * sd(results$absFC)) 
@@ -207,20 +208,20 @@ create_figures = function(results, normalized_count_included){
 	
 	pdf(paste0(out_path, "/figures.pdf"), width=12, height=6)
 
-	ggplot(results, aes(x=Name, y=absFC)) + geom_point(color="#22908C", alpha=0.5) + ylab("absolute log2 fold change") +
+	print(ggplot(results, aes(x=Name, y=absFC)) + geom_point(color="#22908C", alpha=0.5) + ylab("absolute log2 fold change") +
 		geom_hline(yintercept=mean_logfc, color="#22908C",linetype="dashed") +
 		geom_hline(yintercept=c(sapply(1:5,function(x) c( mean_logfc + x * sd_logfc )), color="#F2BB05" ,linetype="dashed") + 
-		annotate(geom="text", x=nrow(results)/2, y=mean_logfc + 6*sd_logfc, label=paste0("avg. log2 fold change + 5*SD: ",signif(logFC_threshold, digits=3)), color="black"))
+		annotate(geom="text", x=nrow(results)/2, y=mean_logfc + 6*sd_logfc, label=paste0("avg. log2 fold change + 5*SD: ",signif(logFC_threshold, digits=3)), color="black")))
 
 	# volcano plot	
-	ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
+	print(ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
 		ylab("-log10 nominal p-value") + xlab("log2 fold change") + 
 		xlim(-max(results$absFC), max(results$absFC)) +
 		ggtitle(paste0("~ ",config$parameters$model,"\n + ",config$parameters$number_surrogate_variables, " SVs","\n n = ",length(included_samples)," samples")) + 
 		geom_vline(xintercept=c(-logFC_threshold, logFC_threshold), color="grey", linetype="dashed") +
 		geom_hline(yintercept=c(-log10(0.05), -log10(0.001)), color="grey",linetype="dashed") +
 		geom_text_repel(data =subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=Name, size=1.5), show.legend=F) + 
-		theme(plot.title=element_text(size=7)) + scale_color_identity()
+		theme(plot.title=element_text(size=7)) + scale_color_identity())
 
 	dev.off()
 
@@ -289,6 +290,7 @@ if (is.na(clean_count_file)) {
 	if (normalized_count_included) {normalized_df = clean$normalized }
 
 } else {
+	cat(paste0("using ", clean_count_file, "\n"), file=log)
 	count_df = read.csv(clean_count_file, sep="\t", row.names=1, check.names=F)
 	included_genes = rownames(count_df)
 	included_samples = intersect(included_samples, colnames(count_df))
@@ -329,6 +331,7 @@ create_figures(results, normalized_count_included)
 
 
 violin_plot <- function(gene_name, gene_levels){
+	suppressMessages(library(ggpubr))
 	p1 <- ggplot(gene_levels, aes(x=categories, y=normalized, fill=categories)) + xlab("") + ylab(paste0("TPM ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
 	p2 <- ggplot(gene_levels, aes(x=categories, y=voom, fill=categories)) + xlab("") + ylab(paste0("Voom-normalized expression ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
 	p3 <- ggplot(gene_levels, aes(x=categories, y=residuals, fill=categories)) + xlab("") + ylab(paste0("Full model residuals ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
@@ -336,6 +339,7 @@ violin_plot <- function(gene_name, gene_levels){
 }
 
 scatter_plot <- function(gene_name, gene_levels){
+	suppressMessages(library(ggpubr))
 	p1 <- ggplot(gene_levels, aes(x=BMI, y=TPM)) + xlab("log2 BMI") + ylab(paste0("TPM ", gene_name )) + geom_point(alpha=0.5,color="#22908C") 
 	p2 <- ggplot(gene_levels, aes(x=BMI, y=voom)) + xlab("log2 BMI") + ylab(paste0("Voom-normalized expression ", gene_name )) + geom_point(alpha=0.5, color="#22908C") 
 	p3 <- ggplot(gene_levels, aes(x=BMI, y=residuals)) + xlab("log2 BMI") + ylab(paste0("Full model residuals ", gene_name )) + geom_point(alpha=0.5, color="#22908C") 

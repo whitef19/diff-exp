@@ -172,6 +172,7 @@ run_limma = function(dataObject, design, config, normalized_count_included) {
 	ebayesFit <- limma::eBayes(fit)
 	## Extract limma results
 	results <- limma::topTable(ebayesFit, coef=config$parameters$contrast, number=Inf, sort.by="p")
+	results <- cbind(ID=rownames(results), results)
 
 	## Annotate limma results
 	results$ID <- rownames(results)
@@ -198,6 +199,7 @@ create_figures = function(results, normalized_count_included){
 	logFC_threshold <- (mean(results$absFC) + 5 * sd(results$absFC)) 
 	top_hits <- subset(results, absFC > logFC_threshold)
 	results$color <- ifelse(results$absFC > logFC_threshold, "#22908C", "#F2BB05")
+	results$color <- ifelse(results$P.Value > 0.05, "black", results$color)
 
 	cat(paste0("logFC threshold mean + 5 SDs: ",logFC_threshold,  "\n",
 					"==> number of top hits: ",nrow(top_hits),"\n"), file=log)
@@ -208,20 +210,26 @@ create_figures = function(results, normalized_count_included){
 	
 	pdf(paste0(out_path, "/figures.pdf"), width=12, height=6)
 
-	print(ggplot(results, aes(x=Name, y=absFC)) + geom_point(color="#22908C", alpha=0.5) + ylab("absolute log2 fold change") +
-		geom_hline(yintercept=mean_logfc, color="#22908C",linetype="dashed") +
-		geom_hline(yintercept=c(sapply(1:5,function(x) c( mean_logfc + x * sd_logfc )), color="#F2BB05" ,linetype="dashed") + 
-		annotate(geom="text", x=nrow(results)/2, y=mean_logfc + 6*sd_logfc, label=paste0("avg. log2 fold change + 5*SD: ",signif(logFC_threshold, digits=3)), color="black")))
-
+	#print(ggplot(results, aes(x=ID, y=absFC)) + geom_point(color="#22908C", alpha=0.5) + ylab("absolute log2 fold change") +
+	#	geom_hline(yintercept=mean_logfc, color="#22908C",linetype="dashed") +
+	#	geom_hline(yintercept=c(sapply(1:5,function(x) c( mean_logfc + x * sd_logfc )), color="#F2BB05" ,linetype="dashed") + 
+	#	annotate(geom="text", x=nrow(results)/2, y=mean_logfc + 6*sd_logfc, label=paste0("avg. log2 fold change + 5*SD: ",signif(logFC_threshold, digits=3)), color="black")))
 	# volcano plot	
-	print(ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
+	volcano <- ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
 		ylab("-log10 nominal p-value") + xlab("log2 fold change") + 
 		xlim(-max(results$absFC), max(results$absFC)) +
 		ggtitle(paste0("~ ",config$parameters$model,"\n + ",config$parameters$number_surrogate_variables, " SVs","\n n = ",length(included_samples)," samples")) + 
 		geom_vline(xintercept=c(-logFC_threshold, logFC_threshold), color="grey", linetype="dashed") +
 		geom_hline(yintercept=c(-log10(0.05), -log10(0.001)), color="grey",linetype="dashed") +
-		geom_text_repel(data =subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=Name, size=1.5), show.legend=F) + 
-		theme(plot.title=element_text(size=7)) + scale_color_identity())
+		theme(plot.title=element_text(size=7)) + scale_color_identity()
+
+	if (nrow(subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001)) > 0){
+		if ( ! is.na(config$paths$gene_annotations)) {
+			print(volcano + geom_text_repel(data =subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=Name, size=1.5), show.legend=F))
+		} else {
+			print(volcano + geom_text_repel(data=subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=ID, size=1.5), show.legend=F))
+		}
+	} else {print(volcano)}
 
 	dev.off()
 

@@ -1,6 +1,6 @@
 variable_name	variable_type	variable_value
 included_samples	file	examples/included_samples.txt
-read_count_matrix	file	examples/gene_reads.gct.gz
+read_count_matrix	file	examples/reads.tsv
 normalized_count_matrix	file	NA
 design	file	examples/design.tsv
 gene_annotations	file	NA

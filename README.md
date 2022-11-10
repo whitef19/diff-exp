@@ -1,92 +1,118 @@
-# DE analysis
+# Differential Expression analysis with limma
 
-
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/labjacquespe/de-analysis.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://gitlab.com/labjacquespe/de-analysis/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
 
 ## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Differential expression analysis for RNA-seq data. From raw quantification and TPM table, the pipeline apply custom filters. Genes with high enough expression levels are used to compute surrogate variables to be included in DE analysis. DE analysis is then conducted by limma. 
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+## Requirements
+You'll need R and the following packages:
+- [ ] edgeR
+- [ ] isva
+- [ ] SmartSVA
+- [ ] limma
+- [ ] ggplot2
+- [ ] ggpubr
+- [ ] ggrepel
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+Rscript de-analysis.R -c <path_to_config_file> -o <output_directory>
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## config file
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+The config file must contains all options listed in the **config.tsv** file included in this git. Unused variables should be given the value NA.   
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+#### Example of config file
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+|variable_name|variable_type|variable_value|
+|:------------|:-----------:|:-------------|
+included_samples|	file|	/absolute/path/to/sample_list.txt
+read_count_matrix|	file|	/absolute/path/to/gene_reads.gct.gz
+normalized_count_matrix|	file|	NA
+design|	file|	/absolute/path/to/design.tsv
+gene_annotations|	file|	/absolute/path/to/gene_annotations.tsv
+mappability_scores|	file|	NA
+clean_counts|    file|    /absolute/path/to/clean_counts.tsv
+count_threshold|	parameter|	6
+tpm_threshold|	parameter|	0.5
+sample_frac_threshold|	parameter|	0.2
+mappability_threshold|	parameter|	NA
+contrast|	parameter|	status_diabetes
+model|	parameter|	status_diabetes+sex+age
+run_SVA|	parameter|	FALSE
+number_surrogate_variables|	parameter|	2
 
-## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+
+
+## Precisions on files to provide
+
+#### included_samples (required)
+
+The file *included_samples* contains one column without header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed must be compatible with the IDs in *read_count_matrix*, *normalized_count_matrix* and *design*.   
+
+```
+sample_1
+sample_2
+sample_3
+sample_4
+```
+
+#### read_count_matrix (required) and normalized_count_matrix 
+
+The file *read_count_matrix* should contains raw counts and *normalized_count_matrix* should contains normalized counts such as TPM, FPKM or RPKM. 
+The rows must contain the genes and the columns must contain the samples.
+
+The file *normalized_count_matrix* is optional. *read_count_matrix* and *normalized_count_matrix* must have the same sample IDs.
+
+```
+Name                Description     sample_1        sample_2
+ENSG00000223972.5   GENE1           3               0
+ENSG00000227232.5   GENE2           184             150
+ENSG00000278267.1   GENE3           400             534
+ENSG00000243485.5   GENE4           84              544
+
+```
+
+#### design (required)
+
+The file *design* should contains all covariables used in *model*. The rows must contain the samples and the columns must contain the covariables.
+If you want to provided your own surrogate variables, add them to the design fill and name them SV1, SV2, SV3, ect. 
+
+```
+ID          status_diabetes     sex     age     SV1          SV2
+sample_1    0                   0       25      0.122        0.037      
+sample_2    0                   1       28      0.109        0.105  
+sample_3    1                   0       23      0.092        0.007  
+sample_4    1                   1       24      0.137        0.009  
+
+```
+
+#### mappability_scores
+
+The file *mappability_scores* is optional. 
+It should contains the mappability scores. This file should have two columns: gene IDs (compatible with the IDs in *read_count_matrix* and *normalized_count_matrix*) and mappability scores without a header.
+
+```
+ENSG00000223972.5	0.626473
+ENSG00000227232.5	0.152829
+ENSG00000278267.1	0.372085
+ENSG00000243485.5	0.908104
+```
+
+#### gene_annotations
+
+The file *gene_annotations* is optional. It should contains a first column with the gene IDs (compatible with the IDs in *read_count_matrix* and *normalized_count_matrix*). It has a header with the first column named *ID*. You can provide any useful informations in the following columns that you want to retrieve in the final result table.
+
+```
+ID                  Name    mappability_score   annotations
+ENSG00000223972.5   GENE1   0.626473            associated_with_diabetes 
+ENSG00000227232.5   GENE2   0.152829            unknown  
+ENSG00000278267.1   GENE3   0.372085            associated_with_insuline 
+ENSG00000243485.5   GENE4   0.908104            unknown     
+```

@@ -13,4 +13,5 @@ mappability_scores	file	NA
 contrast	parameter	sex
 model	parameter	sex+age+batch
 run_SVA	parameter	FALSE
+run_DE  parameter   TRUE
 number_surrogate_variables	parameter	0

@@ -90,7 +90,6 @@ filtering = function(config, design, included_samples, normalized_count_included
 
 	## sample filtering
 	cat(paste0("=> initial number of samples: ", ncol(count_df), "\n"),file=log)
-
 	## include only samples without any missing covariates
 	design = design[included_samples, ]
 	model <- paste0("~", config$parameters$model)
@@ -98,7 +97,6 @@ filtering = function(config, design, included_samples, normalized_count_included
 
 	included_samples <- rownames(mm)
 	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
-	
 	count_df = count_df[, included_samples] 
 	clean_count_df <- cbind("ID"=rownames(count_df), count_df)
 	clean_file_name = paste0(out_path,"/clean_counts.tsv")
@@ -148,15 +146,15 @@ run_sva = function(dataObject, design, config){
 	SVs <- as.data.frame(SVObject$sv)
 	names(SVs) <- paste0("SV",1:ncol(SVs))
 	design <- cbind(design, SVs)
-	design_to_write <- cbind(rownames(design), design)
-	write.table(design, file=paste0(out_path,"/design_with_SVs.tsv"))
+	design_to_write <- cbind("ID"=rownames(design), design)
+	write.table(design_to_write, file=paste0(out_path,"/design_with_SVs.tsv"), sep="\t", row.names=F, quote=F)
 	
-	full_model = paste0("~", model, "+", paste0("SV",1:numSVs, collapse="+"))
-	return(list(design=design, model=full_model))
+	full_model = paste0(model, "+", paste0("SV",1:numSVs, collapse="+"))
+	return(list(design=design, model=full_model, nb_svs=numSVs))
 }
 
 
-run_limma = function(dataObject, design, config, normalized_count_included) {
+run_limma = function(dataObject, design, config, normalized_count_included, full_model) {
 
 	## create covariate matrix to input in limma
 	mm = model.matrix(eval(parse(text=full_model)), data=design)
@@ -190,8 +188,24 @@ run_limma = function(dataObject, design, config, normalized_count_included) {
 	return(results)
 }
 
+run_deseq <- function(counts, design, config, normalized_count_included, full_model){
 
-create_figures = function(results, normalized_count_included){
+	#ddsFullCountTable = DESeq2::DESeqDataSetFromMatrix(countData=counts, colData=design[,-1], design=as.formula(paste0("~", config$parameters$model)))
+	ddsFullCountTable = DESeq2::DESeqDataSetFromMatrix(countData=counts, colData=design, design=as.formula(full_model))
+	dds <- DESeq2::DESeq(ddsFullCountTable)
+	deseq_counts <- DESeq2::counts(dds, normalized=TRUE)
+	deseq_counts <- cbind(ID=rownames(deseq_counts), deseq_counts)
+	write.table(deseq_counts, file=paste0(out_path, "/deseq_normalized_counts.tsv" ), sep="\t", quote=F, row.names=F)
+	results <- DESeq2::results(dds)
+	results <- data.frame(results)
+	results <- cbind("ID"=rownames(results),results)
+	results <- results[order(results$pvalue),]
+	write.table(results, file=paste0(out_path,"/deseq_results.tsv"), sep="\t", quote=F, row.names=F)
+	colnames(results) <- c("ID","baseMean","logFC","lfcSE","stat","P.Value","adj.P.Val")
+	return(results)
+}
+
+create_figures = function(results, normalized_count_included, nb_svs, analysis){
 	suppressMessages(library(ggplot2))
 	suppressMessages(require(ggrepel))
 	
@@ -208,7 +222,7 @@ create_figures = function(results, normalized_count_included){
 	mean_logfc <- mean(results$absFC)
 	sd_logfc <- sd(results$absFC)
 	
-	pdf(paste0(out_path, "/figures.pdf"), width=12, height=6)
+	pdf(paste0(out_path, "/figures.",analysis,".pdf"), width=12, height=6)
 
 	#print(ggplot(results, aes(x=ID, y=absFC)) + geom_point(color="#22908C", alpha=0.5) + ylab("absolute log2 fold change") +
 	#	geom_hline(yintercept=mean_logfc, color="#22908C",linetype="dashed") +
@@ -218,16 +232,16 @@ create_figures = function(results, normalized_count_included){
 	volcano <- ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
 		ylab("-log10 nominal p-value") + xlab("log2 fold change") + 
 		xlim(-max(results$absFC), max(results$absFC)) +
-		ggtitle(paste0("~ ",config$parameters$model,"\n + ",config$parameters$number_surrogate_variables, " SVs","\n n = ",length(included_samples)," samples")) + 
+		ggtitle(paste0("~ ",config$parameters$model,"\n + ",nb_svs, " SVs","\n n = ",length(included_samples)," samples")) + 
 		geom_vline(xintercept=c(-logFC_threshold, logFC_threshold), color="grey", linetype="dashed") +
 		geom_hline(yintercept=c(-log10(0.05), -log10(0.001)), color="grey",linetype="dashed") +
 		theme(plot.title=element_text(size=7)) + scale_color_identity()
 
-	if (nrow(subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001)) > 0){
+	if (nrow(subset(results, abs(logFC) > logFC_threshold & P.Value < 0.05)) > 0){
 		if ( ! is.na(config$paths$gene_annotations)) {
-			print(volcano + geom_text_repel(data =subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=Name, size=1.5), show.legend=F))
+			print(volcano + geom_text_repel(data =subset(results, abs(logFC) > logFC_threshold & P.Value < 0.05), aes(label=Name, size=1.5), show.legend=F))
 		} else {
-			print(volcano + geom_text_repel(data=subset(results, abs(logFC) > logFC_threshold & P.Value < 0.001), aes(label=ID, size=1.5), show.legend=F))
+			print(volcano + geom_text_repel(data=subset(results, abs(logFC) > logFC_threshold & P.Value < 0.05), aes(label=ID, size=1.5), show.legend=F))
 		}
 	} else {print(volcano)}
 
@@ -267,7 +281,6 @@ config = open_config(config_path)
 ## read design file ans list of sample to included in analysis
 design = read.csv(config$paths$design, sep="\t", check.names=F, row.names=1)
 included_samples = read.csv(config$paths$included_samples, header=F)$V1
-
 ## determine if normalized counts are included
 normalized_count_included = ifelse(is.na(config$paths$normalized_count_matrix), FALSE, TRUE)
 
@@ -317,23 +330,34 @@ design = design[included_samples, ]
 dataObject = edgeR::DGEList(counts=count_df)
 dataObject = edgeR::calcNormFactors(dataObject)
 
+dataObject_TMM = edgeR::calcNormFactors(dataObject, method="TMM")
+TMM <- edgeR::cpm(dataObject_TMM)
 
 ## run surrogate variable analysis
 if (as.logical(config$parameters$run_SVA)) {
 	from_sva = run_sva(dataObject, design, config)
 	design = from_sva$design
 	full_model = from_sva$model
+	nb_svs = from_sva$nb_svs
 } else if (config$parameters$number_surrogate_variables > 0) {
-	full_model = paste0("~", config$parameters$model, "+", paste0("SV",1:config$parameters$number_surrogate_variables, collapse="+"))
+	nb_svs = config$parameters$number_surrogate_variables
+	full_model = paste0("~", config$parameters$model, "+", paste0("SV",1:nb_svs, collapse="+"))
 } else {
 	full_model = paste0("~", config$parameters$model)
+	nb_svs = 0 
 }
-cat(paste0("# Full Model: ", full_model ,"\n"), file=log)
 
-## Differential expression analysis 
-results = run_limma(dataObject, design, config, normalized_count_included)
 
-create_figures(results, normalized_count_included)
+if (config$parameters$run_DE){
+	cat(paste0("# Full Model: ", full_model ,"\n"), file=log)
+
+	## Differential expression analysis 
+	results = run_limma(dataObject, design, config, normalized_count_included, full_model)
+	results_deseq = run_deseq(count_df, design, config, normalized_count_included, full_model)
+
+	create_figures(results, normalized_count_included, nb_svs,"limma")
+	create_figures(results_deseq, normalized_count_included, nb_svs,"deseq")
+}
 
 
 

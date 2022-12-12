@@ -34,7 +34,7 @@ open_config = function(config_path) {
 	if(ncol(config) != 2) {
 		stop("config file must have 3 columns: variable names, types and values")
 	} 
-
+	write.table(config, file=paste0(out_path, "/config_file_used"), sep="\t", quote=F)
 	colnames(config) <- c("variable_type", "variable_value")
 	paths = data.frame(t(subset(config, variable_type == "file", "variable_value")))
 	parameters = data.frame(t(subset(config, variable_type == "parameter", "variable_value")))
@@ -127,8 +127,9 @@ do_a_pca <- function(df, design, config) {
 
 	PCA <- prcomp(t(df))
 	PCs <- PCA$x
-	PCs <- data.frame( cbind(ID=rownames(PCs), PCs, conditions=design[rownames(PCs),config$parameters$contrast], data.frame(t(df[, rownames(PCs)]))) )
-	if (nrow(data.frame(table(PCs$conditions))) >= 5 ) { PCs$contrast = cut(PCs$conditions, quantile(PCs$conditions), include=T) } else { PCs$contrast = PCs$conditions}
+	#PCs <- data.frame( cbind(ID=rownames(PCs), PCs, conditions=design[rownames(PCs),config$parameters$contrast], data.frame(t(df[, rownames(PCs)]))) )
+	PCs <- data.frame( cbind(ID=rownames(PCs), PCs, data.frame(t(df[, rownames(PCs)]))) )
+	#if (nrow(data.frame(table(PCs$conditions))) >= 5 ) { PCs$contrast = cut(PCs$conditions, quantile(PCs$conditions), include=T) } else { PCs$contrast = PCs$conditions}
 	var <- summary(PCA)$importance[2,]
 	Var <- data.frame("x"=1:length(var), "var"=as.vector(var)*100)
 	return(list(PC=PCs, var=Var, loadings=data.frame(PCA$rotation)))
@@ -137,18 +138,21 @@ do_a_pca <- function(df, design, config) {
 complete_pca <- function(PCA, pdf_file, normalization) {
 
 	top_loadings <- rownames(PCA$loadings[order(abs(PCA$loadings$PC1), decreasing=T), ])[1:3]
-	melted_top_loadings <- reshape2::melt(PCA$PC[, c("ID","contrast", "PC1", "PC2", top_loadings)], id=c("ID","contrast", "PC1", "PC2"))
+	#melted_top_loadings <- reshape2::melt(PCA$PC[, c("ID","contrast", "PC1", "PC2", top_loadings)], id=c("ID","contrast", "PC1", "PC2"))
+	melted_top_loadings <- reshape2::melt(PCA$PC[, c("ID","PC1", "PC2", top_loadings)], id=c("ID","PC1", "PC2"))
 
 	pdf(pdf_file, width=8, height=6)
 	scree <- ggplot(PCA$var[1:20,], aes(x=x, y=var)) + geom_bar(stat="identity", fill="black") + ggtitle(paste0("Scree plot (",normalization,")")) + xlab("PCs") + ylab("Variance (%)")
-	pca <- ggplot(PCA$PC, aes(x=PC1, y=PC2, color=contrast, label=rownames(PCA$PC))) + geom_point(alpha=0.1) + ggtitle(paste0("PCA (",normalization,")")) + xlab(paste0("PC1 (", PCA$var$var[1] ," %)")) + ylab(paste0("PC2 (", PCA$var$var[2] ," %)")) + theme(legend.position="none")
+	#pca <- ggplot(PCA$PC, aes(x=PC1, y=PC2, color=contrast, label=rownames(PCA$PC))) + geom_point(alpha=0.1) + ggtitle(paste0("PCA (",normalization,")")) + xlab(paste0("PC1 (", PCA$var$var[1] ," %)")) + ylab(paste0("PC2 (", PCA$var$var[2] ," %)")) + theme(legend.position="none")
+	pca <- ggplot(PCA$PC, aes(x=PC1, y=PC2, label=rownames(PCA$PC))) + geom_point(alpha=0.1) + ggtitle(paste0("PCA (",normalization,")")) + xlab(paste0("PC1 (", PCA$var$var[1] ," %)")) + ylab(paste0("PC2 (", PCA$var$var[2] ," %)")) + theme(legend.position="none")
 	loads <- ggplot(PCA$loadings, aes(x=PC1, y=PC2, label=rownames(PCA$loadings))) + geom_text_repel() + geom_point(show.legend=F, alpha=0.2) + ggtitle(paste0("loadings (",normalization,")"))
 	empty <- ggplot() + theme_void()
 	a <- ggarrange(empty, scree, empty, ncol=3, widths=c(1,3,1))
 	b <- ggarrange(pca, loads, ncol=2)
 	print(ggarrange(a, b, ncol=1, heights=c(1,2)))
-	print(ggplot(melted_top_loadings, aes(x=contrast, y=value, group=contrast, fill=contrast)) + geom_boxplot() + geom_jitter() + facet_wrap(~variable, scale="free") + ggtitle("Top loadings") + theme(legend.position="bottom"))
-	print(ggplot(melted_top_loadings, aes(x=PC1, y=value, color=contrast)) + geom_point() + ggtitle("Top loadings") + facet_wrap(~variable, scale="free")+ theme(legend.position="bottom"))
+	#print(ggplot(melted_top_loadings, aes(x=contrast, y=value, group=contrast, fill=contrast)) + geom_boxplot() + geom_jitter() + facet_wrap(~variable, scale="free") + ggtitle("Top loadings") + theme(legend.position="bottom"))
+	#print(ggplot(melted_top_loadings, aes(x=PC1, y=value, color=contrast)) + geom_point() + ggtitle("Top loadings") + facet_wrap(~variable, scale="free")+ theme(legend.position="bottom"))
+	print(ggplot(melted_top_loadings, aes(x=PC1, y=value)) + geom_point() + ggtitle("Top loadings") + facet_wrap(~variable, scale="free")+ theme(legend.position="bottom"))
 	dev.off()
 
 }
@@ -200,7 +204,6 @@ run_sva = function(dataObject, design, config){
 	return(list(design=design, model=full_model, nb_svs=numSVs))
 }
 
-
 run_limma = function(dataObject, design, config, normalized_count_included, full_model) {
 
 	## create covariate matrix to input in limma
@@ -214,18 +217,14 @@ run_limma = function(dataObject, design, config, normalized_count_included, full
 	PCA <- do_a_pca(voom_count_df, design, config)
 	complete_pca(PCA, paste0(out_path,"/PCA_on_voom_values.pdf"), "voom")
 
-	print("OK")
 	## run the regressions
 	fit <- limma::lmFit(Vfinal, mm)
 	contrast = colnames(fit$coefficients)[2]
-	print(contrast)
 	## run eBayes() to borrow information across genes
 	ebayesFit <- limma::eBayes(fit)
-	print("OK")
-
+	save(ebayesFit, file=paste0(out_path,"/ebayesFit.RData"))
 	## Extract limma results
 	results <- limma::topTable(ebayesFit, coef=contrast, number=Inf, sort.by="p")
-	print("OK")
 
 	results <- cbind(ID=rownames(results), results)
 
@@ -283,7 +282,7 @@ create_figures = function(results, normalized_count_included, nb_svs, analysis){
 
 	cat(paste0("logFC threshold mean + 5 SDs: ",logFC_threshold,  "\n",
 					"==> number of top hits: ",nrow(top_hits),"\n"), file=log)
-	write.table(top_hits, file=paste0(out_path,"/top_limma_results.tsv"), sep="\t", quote=F, row.names=F)
+	write.table(top_hits, file=paste0(out_path,"/top_",analysis,"_results.tsv"), sep="\t", quote=F, row.names=F)
 
 	mean_logfc <- mean(results$absFC)
 	sd_logfc <- sd(results$absFC)
@@ -375,8 +374,10 @@ if (normalized_count_included) {normalized_df = clean$normalized }
 ## put covariates as factors
 included_covariates <- unlist(strsplit(parameters$model, "+", fixed=T))
 for (cov in included_covariates) {
-	if ( nrow(data.frame(table(design[, cov]))) < 5) {
-		design[, cov] = factor(design[, cov])
+	if (cov != parameters$contrast) {
+		if ( nrow(data.frame(table(design[, cov]))) < 5) {
+			design[, cov] = factor(design[, cov])
+		}
 	}
 }
 

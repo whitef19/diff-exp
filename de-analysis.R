@@ -17,15 +17,10 @@ suppressMessages(library(ggpubr))
 
 #--------------------------------
 
-usage = function(errM) {
-	cat("\nUsage : Rscript de-analysis.R -c <Value> -o <Value>\n")
-	cat("       -c      : config\n")
-	cat("       -o      : output directory\n")
-	cat("       -h      : this help\n\n")
-	stop(errM)
-}
+if(!exists("usage", mode="function")) source("de-functions.R")
 
-open_config = function(config_path) {
+prepare_config = function(config_path) 
+{
 	if (!(file.exists(config_path))) {
 		usage("Error : config file not found")
 	}
@@ -34,7 +29,7 @@ open_config = function(config_path) {
 	if(ncol(config) != 2) {
 		stop("config file must have 3 columns: variable names, types and values")
 	} 
-	write.table(config, file=paste0(out_path, "/config_file_used"), sep="\t", quote=F)
+	write.table(cbind(variable_name=rownames(config), config), file=paste0(out_path, "/config_file_used"), sep="\t", quote=F, row.names=F)
 	colnames(config) <- c("variable_type", "variable_value")
 	paths = data.frame(t(subset(config, variable_type == "file", "variable_value")))
 	parameters = data.frame(t(subset(config, variable_type == "parameter", "variable_value")))
@@ -43,208 +38,180 @@ open_config = function(config_path) {
 	for (file in paths) {
 		if (!is.na(file)){
 			if (!(file.exists(file))) {
-				stop(paste0("Error : ",file," file not found"))
-			}
+				stop(paste0("Error : ",file," file not found"))}
 		}
 	}
 
-	return(list(paths=paths, parameters=parameters))	
+	return(list(files=paths, parameters=parameters))	
 }
 
-
-filtering = function(config, design, included_samples, normalized_count_included){
-	
-	## read count file
+prepare_count_matrix = function(file_name) 
+{
+	## look if you have to skipped header rows
 	skipped = 0
-	res <- try(read.csv(config$paths$read_count_matrix, sep="\t", check.names=F, row.names=1, skip=skipped))
+	res <- try(read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped))
 	while (inherits(res, "try-error")) {
 		skipped = skipped + 1
-		res <- try(read.csv(config$paths$read_count_matrix, sep="\t", check.names=F, row.names=1, skip=skipped))
+		res <- try(read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped))
 	}
 	
-
-	count_df = read.csv(config$paths$read_count_matrix, sep="\t", check.names=F, row.names=1, skip=skipped)
+	count_df = read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped)
+	sample_id = colnames(count_df)
 	cat(paste0("=> initial number of genes: ", nrow(count_df), "\n"), file=log)
 	
 	## remove first column that contains description
-	count_df$Description <- NULL
-	
-	## Apply count thresholds
-	cat(paste0("Gene filter thresholds:\n    counts: ", config$parameters$count_threshold,
-						"\n    sample fraction:   ", config$parameters$sample_frac_threshold,"\n"), file=log)
-	## to be included, genes must have at least count_threshold in at least sample_frac_threshold of samples
-	passed_count_threshold <- apply(count_df, 1, function(x) (sum(x >= as.numeric(config$parameters$count_threshold))/length(x)) >= as.numeric(config$parameters$sample_frac_threshold))
-
-	## Apply normalized count thresholds
-
-	if ( normalized_count_included ) {
-		cat(paste0("    normalized counts: ", config$parameters$normalized_count_threshold,"\n"), file=log)
-		normalized_count_df = read.csv(config$paths$normalized_count_matrix, sep="\t", check.names=F, row.names=1, skip=skipped)[, -1]
-		if (length(intersect(colnames(count_df), colnames(normalized_count_df))) != ncol(count_df)) { stop("samples are different between the counts file and the tpm file") }
-		passed_normalized_threshold <- apply(normalized_count_df, 1, function(x) (sum(x >= as.numeric(config$parameters$normalized_count_threshold))/length(x)) >= as.numeric(config$parameters$sample_frac_threshold))
-		passed_genes <- passed_count_threshold & passed_normalized_threshold
-	} else {
-		passed_genes <- passed_count_threshold
+	if (!is.numeric(count_df[1,1])){
+		count_df[, 1] <- NULL
 	}
+	count_df <- data.frame(count_df)
+	colnames(count_df) <- sample_id
 
-	count_df <- as.data.frame(count_df[passed_genes,])
-	cat(paste0("=> passed genes: ", nrow(count_df),"\n"), file=log)
+	return(count_df)
+}
 
-	included_genes <- rownames(count_df)
-
-	# Apply mappability threshold
-	if (file.exists(config$paths$mappability_scores)) {
-		mappability_scores <- read.table(config$paths$mappability_scores, header=F, col.names=c("gene_id","score"))
-		high_mappability_genes <- subset(mappability_scores, score >= config$parameters$mappability_threshold)$gene_id
-		included_genes <- intersect(high_mappability_genes, included_genes)
-		count_df <- count_df[included_genes, ]
-		cat(paste0("# mappability score threshold: ", config$parameters$mappability_threshold,"\n=> high mappability genes: ", nrow(count_df),"\n"), file=log)
-	}
-
-	## sample filtering
-	cat(paste0("=> initial number of samples: ", ncol(count_df), "\n"),file=log)
-	## include only samples without any missing covariates
+prepare_design <- function(design_file, sample_file, params)
+{
+	design = read.csv(design_file, sep="\t", check.names=F, row.names=1)
+	included_samples = read.csv(sample_file, header=F)$V1
 	design = design[included_samples, ]
-	model <- paste0("~", config$parameters$model)
-	mm <- model.matrix(eval(parse(text=model)), data=design) # model.matrix remove rows with missing values 
 
-	included_samples <- rownames(mm)
+	model = paste0(" ~ ",params$contrast, "+", params$model)
+
+	### put covariates as factors
+	included_covariates <- unlist(strsplit(params$model, "+", fixed=T))
+	#for (cov in included_covariates) {
+	#	if (cov != params$contrast) {
+	#		if ( nrow(data.frame(table(design[, cov]))) < 5) {
+	#			design[, cov] = factor(design[, cov])
+	#		}
+	#	}
+	#}
+
+
+	model_matrix = model.matrix(eval(parse(text=model)), data=design) 
+	included_samples = intersect(included_samples, rownames(model_matrix))
 	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
-	count_df = count_df[, included_samples] 
-	clean_count_df <- cbind("ID"=rownames(count_df), count_df)
-	clean_file_name = paste0(out_path,"/clean_counts.tsv")
-	write.table(clean_count_df, file=paste0(out_path,"/clean_counts.tsv"), sep="\t", quote=F, row.names=F)
+
+	design = design[included_samples, ]
+	return(list(design=design, model=model, model_matrix=model_matrix, samples=included_samples))
+}
+
+
+gene_filtering = function(counts, norm_counts, design, params, map_scores_file)
+{
 	
-	if ( normalized_count_included ) {
-		return(list(count_df=count_df, included_samples=included_samples, included_genes=included_genes, model=mm, normalized=normalized_count_df[included_genes, included_samples]))
-	} else {
-		return(list(count_df=count_df, included_samples=included_samples, included_genes=included_genes, model=mm))
+	### Apply count thresholds
+	cat(paste0("Gene filter thresholds:\ncounts: ", params$count_threshold,"\nsample fraction: ", params$sample_frac_threshold,"\n"), file=log)
+	passed_genes <- apply(counts, 1, function(x) (sum(x >= as.numeric(params$count_threshold))/length(x)) >= as.numeric(params$sample_frac_threshold))
+	
+	if (exists("norm_counts", mode="list")) {
+		cat(paste0("normalized counts: ", params$normalized_count_threshold,"\n"), file=log)
+		passed_norm_thres <- apply(norm_counts, 1, function(x) (sum(x >= as.numeric(params$normalized_count_threshold))/length(x)) >= as.numeric(params$sample_frac_threshold))
+		passed_genes <- (passed_genes & passed_norm_thres)
 	}
+
+	included_genes <- rownames(counts)[passed_genes]
+	cat(paste0("=> passed genes: ", length(included_genes),"\n"), file=log)
+
+	### Apply mappability threshold
+	if (!is.na(map_scores_file)) {
+		
+		mappability_scores <- read.table(map_scores_file, header=F, col.names=c("gene_id","score"))
+		high_mappability_genes <- subset(mappability_scores, score >= params$mappability_threshold)$gene_id
+		included_genes <- intersect(high_mappability_genes, included_genes)
+		cat(paste0("# mappability score threshold: ", params$mappability_threshold,"\n=> high mappability genes: ", length(included_genes),"\n"), file=log)
+	}
+
+	return(included_genes)
 }
 
 
-do_a_pca <- function(df, design, config) {
-
-	PCA <- prcomp(t(df))
-	PCs <- PCA$x
-	#PCs <- data.frame( cbind(ID=rownames(PCs), PCs, conditions=design[rownames(PCs),config$parameters$contrast], data.frame(t(df[, rownames(PCs)]))) )
-	PCs <- data.frame( cbind(ID=rownames(PCs), PCs, data.frame(t(df[, rownames(PCs)]))) )
-	#if (nrow(data.frame(table(PCs$conditions))) >= 5 ) { PCs$contrast = cut(PCs$conditions, quantile(PCs$conditions), include=T) } else { PCs$contrast = PCs$conditions}
-	var <- summary(PCA)$importance[2,]
-	Var <- data.frame("x"=1:length(var), "var"=as.vector(var)*100)
-	return(list(PC=PCs, var=Var, loadings=data.frame(PCA$rotation)))
-}
-
-complete_pca <- function(PCA, pdf_file, normalization) {
-
-	top_loadings <- rownames(PCA$loadings[order(abs(PCA$loadings$PC1), decreasing=T), ])[1:3]
-	#melted_top_loadings <- reshape2::melt(PCA$PC[, c("ID","contrast", "PC1", "PC2", top_loadings)], id=c("ID","contrast", "PC1", "PC2"))
-	melted_top_loadings <- reshape2::melt(PCA$PC[, c("ID","PC1", "PC2", top_loadings)], id=c("ID","PC1", "PC2"))
-
-	pdf(pdf_file, width=8, height=6)
-	scree <- ggplot(PCA$var[1:20,], aes(x=x, y=var)) + geom_bar(stat="identity", fill="black") + ggtitle(paste0("Scree plot (",normalization,")")) + xlab("PCs") + ylab("Variance (%)")
-	#pca <- ggplot(PCA$PC, aes(x=PC1, y=PC2, color=contrast, label=rownames(PCA$PC))) + geom_point(alpha=0.1) + ggtitle(paste0("PCA (",normalization,")")) + xlab(paste0("PC1 (", PCA$var$var[1] ," %)")) + ylab(paste0("PC2 (", PCA$var$var[2] ," %)")) + theme(legend.position="none")
-	pca <- ggplot(PCA$PC, aes(x=PC1, y=PC2, label=rownames(PCA$PC))) + geom_point(alpha=0.1) + ggtitle(paste0("PCA (",normalization,")")) + xlab(paste0("PC1 (", PCA$var$var[1] ," %)")) + ylab(paste0("PC2 (", PCA$var$var[2] ," %)")) + theme(legend.position="none")
-	loads <- ggplot(PCA$loadings, aes(x=PC1, y=PC2, label=rownames(PCA$loadings))) + geom_text_repel() + geom_point(show.legend=F, alpha=0.2) + ggtitle(paste0("loadings (",normalization,")"))
-	empty <- ggplot() + theme_void()
-	a <- ggarrange(empty, scree, empty, ncol=3, widths=c(1,3,1))
-	b <- ggarrange(pca, loads, ncol=2)
-	print(ggarrange(a, b, ncol=1, heights=c(1,2)))
-	#print(ggplot(melted_top_loadings, aes(x=contrast, y=value, group=contrast, fill=contrast)) + geom_boxplot() + geom_jitter() + facet_wrap(~variable, scale="free") + ggtitle("Top loadings") + theme(legend.position="bottom"))
-	#print(ggplot(melted_top_loadings, aes(x=PC1, y=value, color=contrast)) + geom_point() + ggtitle("Top loadings") + facet_wrap(~variable, scale="free")+ theme(legend.position="bottom"))
-	print(ggplot(melted_top_loadings, aes(x=PC1, y=value)) + geom_point() + ggtitle("Top loadings") + facet_wrap(~variable, scale="free")+ theme(legend.position="bottom"))
-	dev.off()
-
-}
-
-run_sva = function(dataObject, design, config){
-
+run_sva = function(counts, design, model, model_matrix){
+	
+	suppressMessages(library(edgeR))
+	suppressMessages(library(limma))
 	suppressMessages(library(isva))
 	suppressMessages(library(SmartSVA))
+	suppressMessages(library(corrplot))
 
-	model = paste0("~ ", config$parameters$model )
-	mm <- model.matrix(eval(parse(text=model)), data=design) 
+	model_matrix = model.matrix(eval(parse(text=paste0("~", config$parameters$contrast, "+", config$parameters$model))), data=design) 
+	null_model = model.matrix(eval(parse(text=paste0("~", config$parameters$model))), data=design)
+	
+	voom = edger_norm(counts, model_matrix)$voom$E
+	write.table(cbind("ID"=rownames(voom), voom), file=paste0(out_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
+
+	numSVs = how_much_svs(voom, design, model, model_matrix, null_model)
+	### run sva
 	cat(paste0("# Compute surrugate variables\n", " Model: ", model ,"\n"), file=log)
-	
-	V <- limma::voom(dataObject, design=mm)
-	normalized_count_df <- V$E
-	
-	## estimate N SVs
-	Yr <- t(resid(lm(as.formula(paste0('t(normalized_count_df)', model)), data=design)))
-	isvaResult = isva::EstDimRMT(Yr, F)
-	numSVs <- isvaResult$dim + 1
-	cat(paste0(" trying with ", numSVs," SVs\n"), file=log)
+	SVObject <- SmartSVA::smartsva.cpp(voom, model_matrix, mod0=null_model, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
+	print("ok")
 
-	## try if the model is converging with numSVs SVs, if not, rerun with 1 SV less 
-	res <- try(SmartSVA::smartsva.cpp(normalized_count_df, mm, mod0=NULL, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
-	if (inherits(res, "try-error")) {
-		while (inherits(res, "try-error")){
-			numSVs = numSVs - 1
-			if(numSVs < 30) { stop("SVA model is not converging") }
-			res <- try(SmartSVA::smartsva.cpp(normalized_count_df, mm, mod0=NULL, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
-		}
-	}
-	
-	## run sva
-	cat(paste0(" model is converging\n => estimation of ", numSVs," SVs\n"), file=log)
-	SVObject <- SmartSVA::smartsva.cpp(normalized_count_df, mm, mod0=NULL, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
-
-	## concatenate SVs to covariate dataframe 
+	### concatenate SVs to covariate dataframe 
 	SVs <- as.data.frame(SVObject$sv)
 	names(SVs) <- paste0("SV",1:ncol(SVs))
 	design <- cbind(design, SVs)
-	design_to_write <- cbind("ID"=rownames(design), design)
-	write.table(design_to_write, file=paste0(out_path,"/design_with_SVs.tsv"), sep="\t", row.names=F, quote=F)
 	
-	Yr <- t(resid(lm(as.formula(paste0('t(normalized_count_df) ~', paste0("SV",1:numSVs, collapse="+"))), data=design)))	
-	PCA <- do_a_pca(Yr, design, config)
-	complete_pca(PCA, paste0(out_path,"/PCA_on_SV_residuals.pdf"), "SV_residuals")
+	correlation_matrix(design, numSVs)
+	print("ok")
+	
+	write.table(cbind("ID"=rownames(design), design), file=paste0(out_path,"/design_svs.tsv"), sep="\t", row.names=F, quote=F)
+	
+	residuals <- t(resid(lm(as.formula(paste0('t(voom) ', "~", paste0("SV",1:numSVs, collapse="+"))), data=design)))
+	write.table(cbind("ID"=rownames(residuals), residuals), file=paste0(out_path,"/sv_residuals.tsv"), sep="\t", row.names=F, quote=F)
 
 	full_model = paste0(model, "+", paste0("SV",1:numSVs, collapse="+"))
-	return(list(design=design, model=full_model, nb_svs=numSVs))
+
+	return(list(design=design, model=full_model))
 }
 
-run_limma = function(dataObject, design, config, normalized_count_included, full_model) {
 
-	## create covariate matrix to input in limma
-	mm = model.matrix(eval(parse(text=full_model)), data=design)
 
-	## rerun voom with full model
-	Vfinal = limma::voom(dataObject, design=mm)
-	voom_count_df = Vfinal$E
-	write.table(cbind("ID"=rownames(voom_count_df), voom_count_df), file=paste0(out_path, "/voom_normalized_counts.tsv" ), sep="\t", quote=F, row.names=F)
 
-	PCA <- do_a_pca(voom_count_df, design, config)
-	complete_pca(PCA, paste0(out_path,"/PCA_on_voom_values.pdf"), "voom")
+run_limma = function(counts, design, annotations, full_model)
+{
+	### create covariate matrix
+	model_matrix = model.matrix(eval(parse(text=full_model)), data=design)
 
-	## run the regressions
-	fit <- limma::lmFit(Vfinal, mm)
+	### rerun voom with full model
+	norm = edger_norm(counts, model_matrix)
+	voom = norm$voom
+	voom_counts = voom$E
+	write.table(cbind("ID"=rownames(voom_counts), voom_counts), file=paste0(out_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
+
+	full_model_but_contrast = paste0("~", paste0(unlist(strsplit(full_model, "+", fixed=T))[-1], collapse="+"))
+	residuals <- t(resid(lm(as.formula(paste0('t(voom_counts) ', full_model_but_contrast)), data=design)))
+	write.table(cbind("ID"=rownames(residuals), residuals), file=paste0(out_path,"/full_model_residuals.tsv"), sep="\t", row.names=F, quote=F)
+
+	### run the regressions
+	fit <- limma::lmFit(voom, model_matrix)
 	contrast = colnames(fit$coefficients)[2]
-	## run eBayes() to borrow information across genes
-	ebayesFit <- limma::eBayes(fit)
-	save(ebayesFit, file=paste0(out_path,"/ebayesFit.RData"))
-	## Extract limma results
-	results <- limma::topTable(ebayesFit, coef=contrast, number=Inf, sort.by="p")
 
+	### run eBayes() to borrow information across genes
+	ebayes_fit <- limma::eBayes(fit)
+	save(ebayes_fit, file=paste0(out_path,"/ebayes_fit.RData"))
+
+	### Extract limma results
+	results <- limma::topTable(ebayes_fit, coef=contrast, number=Inf, sort.by="p")
 	results <- cbind(ID=rownames(results), results)
-
-	## Annotate limma results
-	results$ID <- rownames(results)
-	if (! is.na(config$paths$gene_annotations)) {
-		gene_description = read.csv(config$paths$gene_annotations, sep="\t")
+	
+	### Annotate limma results
+	average_tmm <- data.frame(ID=rownames(norm$tmm), avgTMM=rowMeans(norm$tmm))
+	results <- merge(results, average_tmm, by="ID", all.x=T)
+	
+	if (file.exists(annotations)) {
+		
+		gene_description = read.csv(annotations, sep="\t")
 		results <- merge(gene_description, results, by="ID", all.y=T)
 	}
 
-	if (normalized_count_included){
-		results <- merge(results, data.frame("ID"=rownames(normalized_df), "avgTPM"=rowMeans(normalized_df)), by="ID", all.x=T)
-	}
-
-	results <- results[order(results$P.Value),]
+	results <- results[order(results$P.Value), ]
 	write.table(results, file=paste0(out_path,"/limma_results.tsv"), sep="\t", quote=F, row.names=F)
+	
 	return(results)
 }
 
-run_deseq <- function(counts, design, config, normalized_count_included, full_model){
+run_deseq <- function(counts, design, config, normalized_count_included, full_model)
+{
 
 	ddsFullCountTable = DESeq2::DESeqDataSetFromMatrix(countData=counts, colData=design, design=as.formula(full_model))
 	dds <- DESeq2::DESeq(ddsFullCountTable)
@@ -261,7 +228,7 @@ run_deseq <- function(counts, design, config, normalized_count_included, full_mo
 	if (! is.na(config$paths$gene_annotations)) {
 		gene_description = read.csv(config$paths$gene_annotations, sep="\t")
 		results <- merge(gene_description, results, by="ID", all.y=T)
-		colnames(results) <- c("ID","Name","baseMean","logFC","lfcSE","stat","P.Value","adj.P.Val")
+		colnames(results) <- c("ID",colnames(gene_description)[-1],"baseMean","logFC","lfcSE","stat","P.Value","adj.P.Val")
 	} else {
 		colnames(results) <- c("ID","baseMean","logFC","lfcSE","stat","P.Value","adj.P.Val")
 	}
@@ -271,37 +238,43 @@ run_deseq <- function(counts, design, config, normalized_count_included, full_mo
 	return(results)
 }
 
-create_figures = function(results, normalized_count_included, nb_svs, analysis){
+create_figures = function(results, model, analysis, design)
+{
 
-	
+	nbsvs = colnames(design)[ncol(design)]
+	nbsamples = nrow(design)
 	results$absFC = abs(results$logFC)
-	logFC_threshold <- (mean(results$absFC) + 5 * sd(results$absFC)) 
-	top_hits <- subset(results, absFC > logFC_threshold)
-	results$color <- ifelse(results$absFC > logFC_threshold, "#22908C", "#F2BB05")
-	results$color <- ifelse(results$P.Value > 0.05, "black", results$color)
+	logFC_threshold <- (mean(results$absFC) + 5 * sd(results$absFC))
 
-	cat(paste0("logFC threshold mean + 5 SDs: ",logFC_threshold,  "\n",
-					"==> number of top hits: ",nrow(top_hits),"\n"), file=log)
-	write.table(top_hits, file=paste0(out_path,"/top_",analysis,"_results.tsv"), sep="\t", quote=F, row.names=F)
-
-	mean_logfc <- mean(results$absFC)
-	sd_logfc <- sd(results$absFC)
+	logFC_threshold = 0
 	
-	pdf(paste0(out_path, "/figures.",analysis,".pdf"), width=12, height=6)
+	#top_hits <- subset(results, absFC > logFC_threshold)
+	top_hits <- subset(results, P.Value < 0.05 )
+	#results$color <- ifelse(results$absFC > logFC_threshold, "#22908C", "#F2BB05")
+	#results$color <- ifelse(results$P.Value > 0.05, "black", results$color)
+	results$color <- ifelse(results$logFC > 0, "green", "red")
+	results$color <- ifelse(results$P.Value > 0.05, "grey", results$color)
 
-	volcano <- ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(show.legend=F) + 
-		ylab("-log10 nominal p-value") + xlab("log2 fold change") + 
+
+	cat(paste0("logFC threshold mean + 5 SDs: ",logFC_threshold,  "\n","==> number of top hits: ",nrow(top_hits),"\n"), file=log)
+	write.table(top_hits, file=paste0(out_path,"/top_", analysis, "_results.tsv"), sep="\t", quote=F, row.names=F)
+
+	pdf(paste0(out_path, "/figures.",analysis,".pdf"), width=10, height=6)
+
+	volcano <- ggplot(results, aes(x=logFC, y=-log10(P.Value), color=color)) + geom_point(alpha=0.5) + 
+		ylab("-log10 nominal p-value") + xlab("log2 FC") + 
 		xlim(-max(results$absFC), max(results$absFC)) +
-		ggtitle(paste0("~ ",config$parameters$model,"\n + ",nb_svs, " SVs","\n n = ",length(included_samples)," samples")) + 
-		geom_vline(xintercept=c(-logFC_threshold, logFC_threshold), color="grey", linetype="dashed") +
-		geom_hline(yintercept=c(-log10(0.05), -log10(0.001)), color="grey",linetype="dashed") +
-		theme(plot.title=element_text(size=7)) + scale_color_identity()
+		ggtitle(paste0("~ ", model, "\n + ", nbsvs,"\n n = ", nbsamples, " samples")) + 
+		#geom_vline(xintercept=c(-logFC_threshold, logFC_threshold), color="grey", linetype="dashed") +
+		#geom_hline(yintercept=c(-log10(0.05), -log10(0.001)), color="grey",linetype="dashed") +
+		geom_hline(yintercept=-log10(0.05), color="grey", linetype="dashed") +
+		theme(plot.title=element_text(size=5), legend.position="none") + scale_color_identity()
 
 	if (nrow(subset(results, absFC > logFC_threshold & P.Value < 0.05)) > 0){
-		if ( ! is.na(config$paths$gene_annotations)) {
-			print(volcano + geom_text_repel(data =subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=Name, size=1.5), show.legend=F))
+		if ( "Name" %in% names(results)) {
+			print(volcano + geom_text_repel(data =subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=Name, size=1), show.legend=F, colour = "black"))
 		} else {
-			print(volcano + geom_text_repel(data=subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=ID, size=1.5), show.legend=F))
+			print(volcano + geom_text_repel(data=subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=ID, size=1), show.legend=F, colour = "black"))
 		}
 	} else {print(volcano)}
 
@@ -309,6 +282,17 @@ create_figures = function(results, normalized_count_included, nb_svs, analysis){
 
 }
 
+boxplots <- function(gene_name, logcpm){
+	gene_name <- gsub("-", ".", gene_name)
+	p1 <- ggplot(logcpm, aes(x=as.factor(contrast), y=as.numeric(logcpm[, gene_name]), group=as.factor(contrast), fill=as.factor(contrast))) + xlab("") + ylab(paste0("log2 CPM ", gene_name )) + geom_boxplot() + stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
+	print(p1)
+}
+
+scatterplot <- function(gene_name, logcpm){
+	gene_name <- gsub("-", ".", gene_name)
+	p1 <- ggplot(logcpm, aes(x=contrast, y=as.numeric(logcpm[, gene_name]))) + ylab(paste0("log2 CPM ", gene_name )) + geom_point() 
+	print(p1)
+}
 
 #------
 #-----------
@@ -354,65 +338,77 @@ if (! dir.exists(out_path)) { dir.create(out_path) }
 log = file(paste0(out_path,"/errors.o"), open="a")
 
 ## read config file and verify if all provided files exist
-config = open_config(config_path)
+config = prepare_config(config_path)
 parameters = config$parameters
+files = config$files
 
-## determine if normalized counts are included
-normalized_count_included = ifelse(is.na(config$paths$normalized_count_matrix), FALSE, TRUE)
+
+## open count file
+counts = prepare_count_matrix(files$read_count_matrix)
+if (is.na(files$normalized_count_matrix)) { 
+	normalized_counts = NA
+} else {
+	normalized_counts = prepare_count_matrix(files$normalized_count_matrix)
+}
+
 
 ## read design file and list of sample to included in analysis
-design = read.csv(config$paths$design, sep="\t", check.names=F, row.names=1)
-included_samples = read.csv(config$paths$included_samples, header=F)$V1
+des = prepare_design(files$design, files$samples, parameters)
+design = des$design
+model = des$model
+model_matrix = des$model_matrix
+included_samples = des$samples
 
-## filter count matrix
-clean = filtering(config, design, included_samples, normalized_count_included)
-count_df = clean$count_df
-included_samples = clean$included_samples
-design = design[included_samples, ]
-if (normalized_count_included) {normalized_df = clean$normalized }
 
-## put covariates as factors
-included_covariates <- unlist(strsplit(parameters$model, "+", fixed=T))
-for (cov in included_covariates) {
-	if (cov != parameters$contrast) {
-		if ( nrow(data.frame(table(design[, cov]))) < 5) {
-			design[, cov] = factor(design[, cov])
-		}
-	}
-}
+### filter count matrix
+included_genes = gene_filtering(counts, normalized_counts, design, parameters, files$mappability_scores)
+clean_count = counts[included_genes, included_samples]
+write.table(cbind("ID"=rownames(clean_count), clean_count), file=paste0(out_path,"/clean_counts.tsv"), sep="\t", quote=F, row.names=F)
 
-## normalize counts
-dataObject = edgeR::DGEList(counts=count_df)
-dataObject_TMM = edgeR::calcNormFactors(dataObject, method="TMM")
-dataObject = edgeR::calcNormFactors(dataObject)
-dataObject_TMM <- edgeR::cpm(dataObject_TMM)
 
-PCA <- do_a_pca(log2(dataObject_TMM+1), design, config)
-complete_pca(PCA, paste0(out_path,"/PCA_on_tmm_values.pdf"), "TMM")
+### run surrogate variable analysis
+if (parameters$run_SVA) {
 
-## run surrogate variable analysis
-if (as.logical(parameters$run_SVA)) {
-	from_sva = run_sva(dataObject, design, config)
-	design = from_sva$design
-	full_model = from_sva$model
-	nb_svs = from_sva$nb_svs
+	sva = run_sva(clean_count, design, model, model_matrix)
+	design = sva$design
+	full_model = sva$model
+
 } else if (parameters$number_surrogate_variables > 0) {
-	nb_svs = parameters$number_surrogate_variables
-	full_model = paste0("~", parameters$model, "+", paste0("SV",1:nb_svs, collapse="+"))
+
+	full_model = paste0("~", model, "+", paste0("SV",1:parameters$number_surrogate_variables, collapse="+"))
+
 } else {
-	full_model = paste0("~", parameters$model)
-	nb_svs = 0 
+
+	full_model = paste0("~", model)
 }
 
+cat(paste0("# Full Model: ", full_model ,"\n"), file=log)
 
-if (parameters$run_DE){
-	cat(paste0("# Full Model: ", full_model ,"\n"), file=log)
+### Differential expression analysis 
 
+if (parameters$run_limma){
 
-	## Differential expression analysis 
-	results = run_limma(dataObject, design, config, normalized_count_included, full_model)
-	create_figures(results, normalized_count_included, nb_svs,"limma")
+	results = run_limma(clean_count, design, files$gene_annotations, full_model)
 	
+	create_figures(results, model, "limma", design)
+
+	#logcpm <- log2(cpm + 1)	
+	#logcpm <- data.frame( cbind(ID=colnames(logcpm), design[colnames(logcpm), ], data.frame(t(logcpm)) ) )
+	#logcpm$contrast = design[, parameters$contrast]
+	#is_dichotomic <- nrow(data.frame(table(design[, parameters$contrast]))) == 2
+
+	#pdf(paste0(out_path, "/top_genes.pdf"))
+	#for(i in results[1:10, "ID"]) {
+		#if (is_dichotomic) {
+			#boxplots(i, logcpm)
+		#} else {
+			#scatterplot(i, logcpm)
+		#}
+	#}
+	#dev.off()
+}
+if (parameters$run_deseq){
+	print("Run DE analysis with DESeq2")
 	results_deseq = run_deseq(count_df, design, config, normalized_count_included, full_model)
 	create_figures(results_deseq, normalized_count_included, nb_svs,"deseq")
 

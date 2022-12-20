@@ -75,10 +75,11 @@ prepare_design <- function(design_file, sample_file, params)
 	included_samples = read.csv(sample_file, header=F)$V1
 	design = design[included_samples, ]
 
-	model = paste0(" ~ ",params$contrast, "+", params$model)
+	full_model = paste0(" ~ ", params$full_model)
+	null_model = paste0(" ~ ", params$null_model)
 
-	### put covariates as factors
-	included_covariates <- unlist(strsplit(params$model, "+", fixed=T))
+	#### put covariates as factors
+	#included_covariates <- unlist(strsplit(params$model, "+", fixed=T))
 	#for (cov in included_covariates) {
 	#	if (cov != params$contrast) {
 	#		if ( nrow(data.frame(table(design[, cov]))) < 5) {
@@ -88,12 +89,12 @@ prepare_design <- function(design_file, sample_file, params)
 	#}
 
 
-	model_matrix = model.matrix(eval(parse(text=model)), data=design) 
+	model_matrix = model.matrix(eval(parse(text=full_model)), data=design) 
 	included_samples = intersect(included_samples, rownames(model_matrix))
 	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
 
 	design = design[included_samples, ]
-	return(list(design=design, model=model, model_matrix=model_matrix, samples=included_samples))
+	return(list(design=design, full_model=full_model, null_model=null_model, samples=included_samples))
 }
 
 
@@ -126,7 +127,7 @@ gene_filtering = function(counts, norm_counts, design, params, map_scores_file)
 }
 
 
-run_sva = function(counts, design, model, model_matrix){
+run_sva = function(counts, design, full_model, null_model){
 	
 	suppressMessages(library(edgeR))
 	suppressMessages(library(limma))
@@ -134,32 +135,45 @@ run_sva = function(counts, design, model, model_matrix){
 	suppressMessages(library(SmartSVA))
 	suppressMessages(library(corrplot))
 
-	model_matrix = model.matrix(eval(parse(text=paste0("~", config$parameters$contrast, "+", config$parameters$model))), data=design) 
-	null_model = model.matrix(eval(parse(text=paste0("~", config$parameters$model))), data=design)
+	full_model_matrix = model.matrix(eval(parse(text=full_model)), data=design) 
+	null_model_matrix = model.matrix(eval(parse(text=null_model)), data=design)
 	
-	voom = edger_norm(counts, model_matrix)$voom$E
+	voom = edger_norm(counts, full_model_matrix)$voom$E
 	write.table(cbind("ID"=rownames(voom), voom), file=paste0(out_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
 
-	numSVs = how_much_svs(voom, design, model, model_matrix, null_model)
+	numSVs = how_much_svs(voom, design, full_model, full_model_matrix, null_model_matrix)
+	print(numSVs)
+	print(num.sv(voom, null_model_matrix, method="leek"))
+
+	#pValues = f.pvalue(voom,full_model_matrix, null_model_matrix)
+	#qValues = p.adjust(pValues, method="BH")
+	
 	### run sva
-	cat(paste0("# Compute surrugate variables\n", " Model: ", model ,"\n"), file=log)
-	SVObject <- SmartSVA::smartsva.cpp(voom, model_matrix, mod0=null_model, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
-	print("ok")
+	cat(paste0("# Compute surrugate variables\n", " Full model: ", full_model ,"\n", " Null model: ", null_model ,"\n"), file=log)
+	SVObject <- SmartSVA::smartsva.cpp(voom, full_model_matrix, mod0=null_model_matrix, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
 
 	### concatenate SVs to covariate dataframe 
 	SVs <- as.data.frame(SVObject$sv)
 	names(SVs) <- paste0("SV",1:ncol(SVs))
 	design <- cbind(design, SVs)
 	
+	#modSv = cbind(full_model_matrix, SVObject$sv)
+	#mod0Sv = cbind(null_model_matrix, SVObject$sv)
+	#pValuesSv = f.pvalue(voom,modSv,mod0Sv)
+	#qValuesSv = p.adjust(pValuesSv, method="BH")
+
+	#df <- data.frame(ID=names(qValues), qvalue=qValues, qvaluesv=qValuesSv)
+	#print(ncol(subset(df, qvalue<0.05)))
+	#print(ncol(subset(df, qvaluesv<0.05)))
+
 	correlation_matrix(design, numSVs)
-	print("ok")
 	
 	write.table(cbind("ID"=rownames(design), design), file=paste0(out_path,"/design_svs.tsv"), sep="\t", row.names=F, quote=F)
 	
 	residuals <- t(resid(lm(as.formula(paste0('t(voom) ', "~", paste0("SV",1:numSVs, collapse="+"))), data=design)))
 	write.table(cbind("ID"=rownames(residuals), residuals), file=paste0(out_path,"/sv_residuals.tsv"), sep="\t", row.names=F, quote=F)
 
-	full_model = paste0(model, "+", paste0("SV",1:numSVs, collapse="+"))
+	full_model = paste0(full_model, "+", paste0("SV",1:numSVs, collapse="+"))
 
 	return(list(design=design, model=full_model))
 }
@@ -355,8 +369,8 @@ if (is.na(files$normalized_count_matrix)) {
 ## read design file and list of sample to included in analysis
 des = prepare_design(files$design, files$samples, parameters)
 design = des$design
-model = des$model
-model_matrix = des$model_matrix
+full_model = des$full_model
+null_model = des$null_model
 included_samples = des$samples
 
 
@@ -369,17 +383,17 @@ write.table(cbind("ID"=rownames(clean_count), clean_count), file=paste0(out_path
 ### run surrogate variable analysis
 if (parameters$run_SVA) {
 
-	sva = run_sva(clean_count, design, model, model_matrix)
+	sva = run_sva(clean_count, design, full_model, null_model)
 	design = sva$design
 	full_model = sva$model
 
 } else if (parameters$number_surrogate_variables > 0) {
 
-	full_model = paste0("~", model, "+", paste0("SV",1:parameters$number_surrogate_variables, collapse="+"))
+	full_model = paste0("~", full_model, "+", paste0("SV",1:parameters$number_surrogate_variables, collapse="+"))
 
 } else {
 
-	full_model = paste0("~", model)
+	full_model = paste0("~", full_model)
 }
 
 cat(paste0("# Full Model: ", full_model ,"\n"), file=log)
@@ -390,7 +404,7 @@ if (parameters$run_limma){
 
 	results = run_limma(clean_count, design, files$gene_annotations, full_model)
 	
-	create_figures(results, model, "limma", design)
+	create_figures(results, full_model, "limma", design)
 
 	#logcpm <- log2(cpm + 1)	
 	#logcpm <- data.frame( cbind(ID=colnames(logcpm), design[colnames(logcpm), ], data.frame(t(logcpm)) ) )

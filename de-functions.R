@@ -47,21 +47,21 @@ edger_norm <- function(counts, model_matrix)
 	return(list(tmm=tmm, cpm=cpm, data_object=dataObject, voom=Voom))
 }
 
-how_much_svs = function(voom, design, model, model_matrix, null_model) {
+how_much_svs = function(voom, design, full_model, full_model_matrix, null_model_matrix) {
 	
 
 	### estimate N SVs
-	residuals <- t(resid(lm(as.formula(paste0('t(voom)', model)), data=design)))
+	residuals <- t(resid(lm(as.formula(paste0('t(voom)', full_model)), data=design)))
 	isvaResult = isva::EstDimRMT(residuals, F)
 	numSVs <- isvaResult$dim + 1
 
 	### try if the model is converging with numSVs SVs, if not, rerun with 1 SV less 
-	res <- try(SmartSVA::smartsva.cpp(voom, model_matrix, mod0=null_model, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
+	res <- try(SmartSVA::smartsva.cpp(voom, full_model_matrix, mod0=null_model_matrix, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
 	if (inherits(res, "try-error")) {
 		while (inherits(res, "try-error")){
 			numSVs = numSVs - 1
 			if(numSVs < 2) { stop("SVA model is not converging") }
-			res <- try(SmartSVA::smartsva.cpp(voom, model_matrix, mod0=null_model, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
+			res <- try(SmartSVA::smartsva.cpp(voom, full_model_matrix, mod0=null_model_matrix, n.sv=numSVs, alpha=1, B=200, VERBOSE=F))
 		}
 	}
 	
@@ -73,7 +73,9 @@ how_much_svs = function(voom, design, model, model_matrix, null_model) {
 
 correlation_matrix <- function(design, numSVs) {
 	
-	variable_of_interest = c("Patient_Age","sex_num","gestage_num","Maternal_smoking","primigravid","Visit_BMI_V1","GDM_IADPSG","Matsuda","Stumvoll","PE","HTAg","Batch","RIN_Novogene","Mean_Quality","All_miRNA_Reads")
+	variable_of_interest = c("Patient_Age","gestage_num","sex_num","primigravid","Maternal_smoking",
+		"Visit_BMI_V1","GDM_IADPSG","Matsuda","Stumvoll","PE","HTAg",
+		"Batch","RIN_Novogene","Mean_Quality","pctQ30","All_miRNA_Reads","snoRNA_Reads","rRNA_Reads","ncRNA_others","mRNA_Reads","exceRpt_UniVec_contaminants")
 	df = design[, c(variable_of_interest, paste0("SV",1:numSVs))]
 	#df$sex_num <- as.numeric(df$sex_num)
 	#df$primigravid <- as.numeric(df$primigravid)
@@ -81,7 +83,7 @@ correlation_matrix <- function(design, numSVs) {
 	master <- cor(na.omit(df))
 	pdf(paste0(out_path, "/sva_corrplot.pdf"), width=12, height=12)
 	corrplot(master, tl.col="black",method = 'color')
-	corrplot(master[1:15,16:ncol(master)], tl.col="black",method = 'color')
+	corrplot(master[1:21,22:ncol(master)], tl.col="black",method = 'color')
 	dev.off()
 }
 

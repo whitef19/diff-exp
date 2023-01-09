@@ -75,7 +75,7 @@ correlation_matrix <- function(design, numSVs) {
 	
 	variable_of_interest = c("Patient_Age","gestage_num","sex_num","primigravid","Maternal_smoking",
 		"Visit_BMI_V1","GDM_IADPSG","Matsuda","Stumvoll","PE","HTAg",
-		"Batch","RIN_Novogene","Mean_Quality","pctQ30","All_miRNA_Reads","snoRNA_Reads","rRNA_Reads","ncRNA_others","mRNA_Reads","exceRpt_UniVec_contaminants")
+		"Batch","RIN_Novogene","Mean_Quality")
 	df = design[, c(variable_of_interest, paste0("SV",1:numSVs))]
 	#df$sex_num <- as.numeric(df$sex_num)
 	#df$primigravid <- as.numeric(df$primigravid)
@@ -83,7 +83,7 @@ correlation_matrix <- function(design, numSVs) {
 	master <- cor(na.omit(df))
 	pdf(paste0(out_path, "/sva_corrplot.pdf"), width=12, height=12)
 	corrplot(master, tl.col="black",method = 'color')
-	corrplot(master[1:21,22:ncol(master)], tl.col="black",method = 'color')
+	corrplot(master[1:length(variable_of_interest),(length(variable_of_interest)+1):ncol(master)], tl.col="black",method = 'color')
 	dev.off()
 }
 

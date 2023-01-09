@@ -78,17 +78,6 @@ prepare_design <- function(design_file, sample_file, params)
 	full_model = paste0(" ~ ", params$full_model)
 	null_model = paste0(" ~ ", params$null_model)
 
-	#### put covariates as factors
-	#included_covariates <- unlist(strsplit(params$model, "+", fixed=T))
-	#for (cov in included_covariates) {
-	#	if (cov != params$contrast) {
-	#		if ( nrow(data.frame(table(design[, cov]))) < 5) {
-	#			design[, cov] = factor(design[, cov])
-	#		}
-	#	}
-	#}
-
-
 	model_matrix = model.matrix(eval(parse(text=full_model)), data=design) 
 	included_samples = intersect(included_samples, rownames(model_matrix))
 	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
@@ -142,12 +131,7 @@ run_sva = function(counts, design, full_model, null_model){
 	write.table(cbind("ID"=rownames(voom), voom), file=paste0(out_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
 
 	numSVs = how_much_svs(voom, design, full_model, full_model_matrix, null_model_matrix)
-	print(numSVs)
-	print(num.sv(voom, null_model_matrix, method="leek"))
 
-	#pValues = f.pvalue(voom,full_model_matrix, null_model_matrix)
-	#qValues = p.adjust(pValues, method="BH")
-	
 	### run sva
 	cat(paste0("# Compute surrugate variables\n", " Full model: ", full_model ,"\n", " Null model: ", null_model ,"\n"), file=log)
 	SVObject <- SmartSVA::smartsva.cpp(voom, full_model_matrix, mod0=null_model_matrix, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
@@ -157,16 +141,7 @@ run_sva = function(counts, design, full_model, null_model){
 	names(SVs) <- paste0("SV",1:ncol(SVs))
 	design <- cbind(design, SVs)
 	
-	#modSv = cbind(full_model_matrix, SVObject$sv)
-	#mod0Sv = cbind(null_model_matrix, SVObject$sv)
-	#pValuesSv = f.pvalue(voom,modSv,mod0Sv)
-	#qValuesSv = p.adjust(pValuesSv, method="BH")
-
-	#df <- data.frame(ID=names(qValues), qvalue=qValues, qvaluesv=qValuesSv)
-	#print(ncol(subset(df, qvalue<0.05)))
-	#print(ncol(subset(df, qvaluesv<0.05)))
-
-	correlation_matrix(design, numSVs)
+	#correlation_matrix(design, numSVs)
 	
 	write.table(cbind("ID"=rownames(design), design), file=paste0(out_path,"/design_svs.tsv"), sep="\t", row.names=F, quote=F)
 	
@@ -260,14 +235,12 @@ create_figures = function(results, model, analysis, design)
 	results$absFC = abs(results$logFC)
 	logFC_threshold <- (mean(results$absFC) + 5 * sd(results$absFC))
 
-	logFC_threshold = 0
-	
-	#top_hits <- subset(results, absFC > logFC_threshold)
-	top_hits <- subset(results, P.Value < 0.05 )
-	#results$color <- ifelse(results$absFC > logFC_threshold, "#22908C", "#F2BB05")
-	#results$color <- ifelse(results$P.Value > 0.05, "black", results$color)
-	results$color <- ifelse(results$logFC > 0, "green", "red")
-	results$color <- ifelse(results$P.Value > 0.05, "grey", results$color)
+	top_hits <- subset(results, absFC > logFC_threshold)
+	#top_hits <- subset(results, P.Value < 0.05 )
+	results$color <- ifelse(results$absFC > logFC_threshold, "#22908C", "#F2BB05")
+	results$color <- ifelse(results$P.Value > 0.05, "black", results$color)
+	#results$color <- ifelse(results$logFC > 0, "green", "red")
+	#results$color <- ifelse(results$P.Value > 0.05, "grey", results$color)
 
 
 	cat(paste0("logFC threshold mean + 5 SDs: ",logFC_threshold,  "\n","==> number of top hits: ",nrow(top_hits),"\n"), file=log)
@@ -284,8 +257,8 @@ create_figures = function(results, model, analysis, design)
 		geom_hline(yintercept=-log10(0.05), color="grey", linetype="dashed") +
 		theme(plot.title=element_text(size=5), legend.position="none") + scale_color_identity()
 
-	if (nrow(subset(results, absFC > logFC_threshold & P.Value < 0.05)) > 0){
-		if ( "Name" %in% names(results)) {
+	if (nrow(subset(results, absFC > logFC_threshold & P.Value < 0.05)) > 0) {
+		if ("Name" %in% names(results)) {
 			print(volcano + geom_text_repel(data =subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=Name, size=1), show.legend=F, colour = "black"))
 		} else {
 			print(volcano + geom_text_repel(data=subset(results, absFC > logFC_threshold & P.Value < 0.05), aes(label=ID, size=1), show.legend=F, colour = "black"))
@@ -293,14 +266,15 @@ create_figures = function(results, model, analysis, design)
 	} else {print(volcano)}
 
 	dev.off()
-
 }
+
 
 boxplots <- function(gene_name, logcpm){
 	gene_name <- gsub("-", ".", gene_name)
 	p1 <- ggplot(logcpm, aes(x=as.factor(contrast), y=as.numeric(logcpm[, gene_name]), group=as.factor(contrast), fill=as.factor(contrast))) + xlab("") + ylab(paste0("log2 CPM ", gene_name )) + geom_boxplot() + stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
 	print(p1)
 }
+
 
 scatterplot <- function(gene_name, logcpm){
 	gene_name <- gsub("-", ".", gene_name)
@@ -376,6 +350,8 @@ included_samples = des$samples
 
 ### filter count matrix
 included_genes = gene_filtering(counts, normalized_counts, design, parameters, files$mappability_scores)
+included_samples = intersect(included_samples, colnames(counts))
+design <- design[included_samples,]
 clean_count = counts[included_genes, included_samples]
 write.table(cbind("ID"=rownames(clean_count), clean_count), file=paste0(out_path,"/clean_counts.tsv"), sep="\t", quote=F, row.names=F)
 
@@ -427,46 +403,3 @@ if (parameters$run_deseq){
 	create_figures(results_deseq, normalized_count_included, nb_svs,"deseq")
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-#violin_plot <- function(gene_name, gene_levels){
-#	suppressMessages(library(ggpubr))
-#	p1 <- ggplot(gene_levels, aes(x=categories, y=normalized, fill=categories)) + xlab("") + ylab(paste0("TPM ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
-#	p2 <- ggplot(gene_levels, aes(x=categories, y=voom, fill=categories)) + xlab("") + ylab(paste0("Voom-normalized expression ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
-#	p3 <- ggplot(gene_levels, aes(x=categories, y=residuals, fill=categories)) + xlab("") + ylab(paste0("Full model residuals ", gene_name )) + geom_violin() + geom_boxplot(width=0.2, alpha=0.2)+stat_summary(fun = mean, geom = "errorbar", aes(ymax = ..y.., ymin = ..y..), width = .75, linetype = "dashed")
-#	print(ggarrange(p1, p2, p3, ncol=3))
-#}
-#
-#scatter_plot <- function(gene_name, gene_levels){
-#	suppressMessages(library(ggpubr))
-#	p1 <- ggplot(gene_levels, aes(x=BMI, y=TPM)) + xlab("log2 BMI") + ylab(paste0("TPM ", gene_name )) + geom_point(alpha=0.5,color="#22908C") 
-#	p2 <- ggplot(gene_levels, aes(x=BMI, y=voom)) + xlab("log2 BMI") + ylab(paste0("Voom-normalized expression ", gene_name )) + geom_point(alpha=0.5, color="#22908C") 
-#	p3 <- ggplot(gene_levels, aes(x=BMI, y=residuals)) + xlab("log2 BMI") + ylab(paste0("Full model residuals ", gene_name )) + geom_point(alpha=0.5, color="#22908C") 
-#	print(ggarrange(p1, p2, p3, ncol=3))
-#}
-
-#contrast_is_dicho <- nrow(as.data.frame(table(covariates[, contrast]))) == 2
-#top_genes <- results[order(abs(results$logFC), decreasing=T), ][1:5,"ID"]
-
-#for (i in top_genes){
-#	gene_name = subset(gene_description, ID == i)$Name
-#	gene_levels <- data.frame("ID"=colnames(Vfinal$E), 
-#		"BMI"=covariates[colnames(Vfinal$E), "log2BMI"],
-#		"categories"=covariates[colnames(Vfinal$E), "BMI_categories"],
-#		"TPM"=unlist(TPM[i,colnames(Vfinal$E)]),
-#		"voom"=unlist(Vfinal$E[i,]),
-#		"residuals"=as.numeric(unlist(full_model_residuals[i,colnames(Vfinal$E)]))
-#		)
-#	if(contrast_is_dicho){violin_plot(gene_name, gene_levels)
-#	} else { scatter_plot(gene_name, gene_levels) }
-#}

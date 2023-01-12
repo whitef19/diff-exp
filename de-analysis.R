@@ -200,7 +200,7 @@ run_limma = function(counts, design, annotations, full_model)
 	return(results)
 }
 
-run_deseq <- function(counts, design, config, normalized_count_included, full_model)
+run_deseq <- function(counts, design, annotations, full_model)
 {
 
 	ddsFullCountTable = DESeq2::DESeqDataSetFromMatrix(countData=counts, colData=design, design=as.formula(full_model))
@@ -215,8 +215,8 @@ run_deseq <- function(counts, design, config, normalized_count_included, full_mo
 	results <- data.frame(DESeq2::results(dds, name=contrast))
 	results <- cbind(ID=rownames(results), results)	
 
-	if (! is.na(config$paths$gene_annotations)) {
-		gene_description = read.csv(config$paths$gene_annotations, sep="\t")
+	if (file.exists(annotations)) {
+		gene_description = read.csv(annotations, sep="\t")
 		results <- merge(gene_description, results, by="ID", all.y=T)
 		colnames(results) <- c("ID",colnames(gene_description)[-1],"baseMean","logFC","lfcSE","stat","P.Value","adj.P.Val")
 	} else {
@@ -400,7 +400,7 @@ if (parameters$run_limma){
 }
 if (parameters$run_deseq){
 	print("Run DE analysis with DESeq2")
-	results_deseq = run_deseq(count_df, design, config, normalized_count_included, full_model)
-	create_figures(results_deseq, normalized_count_included, nb_svs,"deseq")
+	results_deseq = run_deseq(clean_count, design, files$gene_annotations, full_model)
+	create_figures(results_deseq, full_model, "deseq", design)
 
 }

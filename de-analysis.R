@@ -62,6 +62,7 @@ prepare_count_matrix = function(file_name)
 	## remove first column that contains description
 	if (!is.numeric(count_df[1,1])){
 		count_df[, 1] <- NULL
+		sample_id <- sample_id[-1]
 	}
 	count_df <- data.frame(count_df)
 	colnames(count_df) <- sample_id
@@ -70,7 +71,7 @@ prepare_count_matrix = function(file_name)
 }
 
 prepare_design <- function(design_file, sample_file, params)
-{
+{	
 	design = read.csv(design_file, sep="\t", check.names=F, row.names=1)
 	included_samples = read.csv(sample_file, header=F)$V1
 	design = design[included_samples, ]
@@ -357,6 +358,14 @@ parameters = config$parameters
 files = config$files
 
 
+## read design file and list of sample to included in analysis
+des = prepare_design(files$design, files$included_samples, parameters)
+design = des$design
+full_model = des$full_model
+null_model = des$null_model
+included_samples = des$samples
+
+
 ## open count file
 counts = prepare_count_matrix(files$read_count_matrix)
 if (is.na(files$normalized_count_matrix)) { 
@@ -364,14 +373,6 @@ if (is.na(files$normalized_count_matrix)) {
 } else {
 	normalized_counts = prepare_count_matrix(files$normalized_count_matrix)
 }
-
-
-## read design file and list of sample to included in analysis
-des = prepare_design(files$design, files$samples, parameters)
-design = des$design
-full_model = des$full_model
-null_model = des$null_model
-included_samples = des$samples
 
 
 ### filter count matrix

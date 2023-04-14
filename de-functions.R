@@ -73,16 +73,64 @@ how_much_svs = function(voom, design, full_model, full_model_matrix, null_model_
 
 correlation_matrix <- function(design, numSVs) {
 	
-	variable_of_interest = c("Patient_Age","gestage_num","sex_num","primigravid","Maternal_smoking",
-		"Visit_BMI_V1","GDM_IADPSG","Matsuda","Stumvoll","PE","HTAg",
-		"Batch","RIN_Novogene","Mean_Quality")
+	df = design
+	for (cov in colnames(design)){
+		df[, cov] <- as.numeric(df[, cov])
+	}
 
-	df = design[, c(variable_of_interest, paste0("SV",1:numSVs))]
 	master <- cor(na.omit(df))
 	pdf(paste0(out_path, "/sva_corrplot.pdf"), width=12, height=12)
 	corrplot(master, tl.col="black",method = 'color')
-	corrplot(master[1:length(variable_of_interest),(length(variable_of_interest)+1):ncol(master)], tl.col="black",method = 'color')
+	non_sva <- ncol(design)-numSVs
+	#corrplot(master[1:non_sva, non_sva+1:ncol(master)], tl.col="black",method = 'color')
 	dev.off()
+}
+
+sv_evaluation <- function(voom, design, annotations, numSVs){
+
+	master <- merge(design, t(voom), by="row.names")
+
+	annot <- read.csv(annotations, sep="\t")
+	rownames(annot) <- annot$ID
+	for_correlation <- merge(design[,paste0("SV", 1:numSVs)], t(voom), by="row.names")
+	
+	correlation <- cor(for_correlation[, -1])
+	correlation <- correlation[-c(1:numSVs), 1:numSVs]
+
+	correlation_to_ouput <- merge(annot, correlation, by="row.names")
+	print(correlation_to_ouput[1:5,1:5])
+	
+	write.table(correlation_to_ouput, file=paste0(out_path, "/genes-svs_correlations.tsv"), sep="\t", row.names=F, quote=F)
+
+	pdf(paste0(out_path, "/genes-svs_evaluations.pdf"))
+	for ( i in 1:numSVs){
+		
+		SV = paste0("SV", i)
+		
+		top_correlation = correlation[order(abs(correlation[,SV]), decreasing=T), ][-1, ]
+		top_correlation = data.frame(ID=rownames(top_correlation), gene=1:nrow(top_correlation), SV=abs(top_correlation[,i]))
+		top_genes <- top_correlation$ID[1:3]
+		top_gene_names <- annot[top_genes, ]$Name
+
+		subdf <- master[,c("Patient_No_etude", SV, top_genes)]
+		colnames(subdf) <- c("Patient_No_etude", SV, top_gene_names)
+		melted <- melt(subdf, id=c("Patient_No_etude", SV))
+
+
+		a = ggplot(top_correlation, aes(x=gene, y=SV)) + geom_point(alpha=0.5) + ylab("pearson's correlation")
+		#b = ggplot(top_correlation, aes(x=SV)) + geom_histogram(alpha=0.5, bins=20) + xlab("pearson's correlation")
+
+		c = ggplot(melted, aes(x=melted[, SV], y=value, group=variable)) + geom_point(alpha=0.5) + facet_wrap(~variable, scale="free") + theme(legend.position="bottom") + xlab(SV) + ylab("voom level")
+		
+		top_table <- cbind(top_correlation[1:15,], Name=annot[top_correlation[1:15,]$ID, ]$Name)
+		#d = ggtexttable(top_table[, c("Name", "SV")], rows = NULL, theme = ttheme("light", base_size=9, padding=unit(c(2, 2),"mm")))
+		#r2 = ggarrange(c,d, nrow=1, widths=c(3,2))
+
+		print(ggarrange(a,c, nrow=1, widths=c(1:3)))
+	}
+
+	dev.off()
+
 }
 
 do_a_pca <- function(df, design, config) {

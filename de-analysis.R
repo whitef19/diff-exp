@@ -45,21 +45,53 @@ prepare_config = function(config_path)
 	return(list(files=paths, parameters=parameters))	
 }
 
+
+prepare_design <- function(design_file, technical_file, sample_file, params)
+{	
+	# id mapping 
+	included = read.csv(sample_file, sep="\t", header=F)
+	colnames(included) <- c("Patient_No_etude", "ID")
+
+	# read biological covariates and keep included samples 
+	design = read.csv(design_file, sep="\t", check.names=F)
+	design = merge(included, design, by="Patient_No_etude")
+	
+	# read technical covariates and keep included samples 
+	technical = read.csv(technical_file, sep="\t", check.names=F)
+	technical = merge(included, technical, by="ID")
+	
+
+	design = merge(design, technical, by="ID")
+	rownames(design) <- design$ID
+
+	for (cov in unlist(strsplit(params$as_factors,"+",fixed=T))){
+		design[, cov] <- as.factor(design[, cov])
+	}
+
+
+	full_model = paste0("~", params$full_model)
+	null_model = paste0("~", params$null_model)
+
+	model_matrix = model.matrix(eval(parse(text=full_model)), data=design)
+		
+	included_samples = intersect(rownames(design), rownames(model_matrix))
+	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
+
+	design = design[included_samples, ]
+
+
+
+	return(list(design=design, full_model=full_model, null_model=null_model, samples=included_samples))
+}
+
 prepare_count_matrix = function(file_name) 
 {
 	## look if you have to skipped header rows
-	skipped = 0
-	res <- try(read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped))
-	while (inherits(res, "try-error")) {
-		skipped = skipped + 1
-		res <- try(read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped))
-	}
-	
-	count_df = read.csv(file_name, sep="\t", check.names=F, row.names=1, skip=skipped)
+	count_df = read.csv(file_name, sep="\t", check.names=F, row.names=1)
 	sample_id = colnames(count_df)
-	cat(paste0("=> initial number of genes: ", nrow(count_df), "\n"), file=log)
+	cat(paste0("=> initial number of genes in ",basename(file_name)," : ", nrow(count_df), "\n"), file=log)
 	
-	## remove first column that contains description
+	## remove second column that contains description
 	if (!is.numeric(count_df[1,1])){
 		count_df[, 1] <- NULL
 		sample_id <- sample_id[-1]
@@ -70,33 +102,15 @@ prepare_count_matrix = function(file_name)
 	return(count_df)
 }
 
-prepare_design <- function(design_file, sample_file, params)
-{	
-	design = read.csv(design_file, sep="\t", check.names=F, row.names=1)
-	included_samples = read.csv(sample_file, header=F)$V1
-	design = design[included_samples, ]
-
-	full_model = paste0(" ~ ", params$full_model)
-	null_model = paste0(" ~ ", params$null_model)
-
-	model_matrix = model.matrix(eval(parse(text=full_model)), data=design) 
-	included_samples = intersect(included_samples, rownames(model_matrix))
-	cat(paste0("=> number of included samples: ", length(included_samples),"\n"),file=log)
-
-	design = design[included_samples, ]
-	return(list(design=design, full_model=full_model, null_model=null_model, samples=included_samples))
-}
-
-
 gene_filtering = function(counts, norm_counts, design, params, map_scores_file)
 {
 	
 	### Apply count thresholds
-	cat(paste0("Gene filter thresholds:\ncounts: ", params$count_threshold,"\nsample fraction: ", params$sample_frac_threshold,"\n"), file=log)
+	cat(paste0("Gene filter thresholds:\nmin ",params$count_threshold, "counts in min ", as.numeric(params$sample_frac_threshold)*100,"% samples\n"), file=log)
 	passed_genes <- apply(counts, 1, function(x) (sum(x >= as.numeric(params$count_threshold))/length(x)) >= as.numeric(params$sample_frac_threshold))
 	
 	if (exists("norm_counts", mode="list")) {
-		cat(paste0("normalized counts: ", params$normalized_count_threshold,"\n"), file=log)
+		cat(paste0("min ",params$normalized_count_threshold, " normalized counts in min ", as.numeric(params$sample_frac_threshold)*100,"% samples\n"), file=log)
 		passed_norm_thres <- apply(norm_counts, 1, function(x) (sum(x >= as.numeric(params$normalized_count_threshold))/length(x)) >= as.numeric(params$sample_frac_threshold))
 		passed_genes <- (passed_genes & passed_norm_thres)
 	}
@@ -110,31 +124,34 @@ gene_filtering = function(counts, norm_counts, design, params, map_scores_file)
 		mappability_scores <- read.table(map_scores_file, header=F, col.names=c("gene_id","score"))
 		high_mappability_genes <- subset(mappability_scores, score >= params$mappability_threshold)$gene_id
 		included_genes <- intersect(high_mappability_genes, included_genes)
-		cat(paste0("# mappability score threshold: ", params$mappability_threshold,"\n=> high mappability genes: ", length(included_genes),"\n"), file=log)
+		cat(paste0("min ",params$mappability_threshold," of mappability score\n=> high mappability genes: ", length(included_genes),"\n"), file=log)
 	}
 
 	return(included_genes)
 }
 
 
-run_sva = function(counts, design, full_model, null_model){
+run_sva = function(counts, design, full_model, null_model, annotations){
 	
 	suppressMessages(library(edgeR))
 	suppressMessages(library(limma))
 	suppressMessages(library(isva))
 	suppressMessages(library(SmartSVA))
 	suppressMessages(library(corrplot))
+	library(ggpubr)
+
+	cat(paste0("# Compute surrugate variables\n", " Full model: ", full_model ,"\n", " Null model: ", null_model ,"\n"), file=log)
 
 	full_model_matrix = model.matrix(eval(parse(text=full_model)), data=design) 
 	null_model_matrix = model.matrix(eval(parse(text=null_model)), data=design)
 	
+	# compute voom normalized counts for SVA
 	voom = edger_norm(counts, full_model_matrix)$voom$E
 	write.table(cbind("ID"=rownames(voom), voom), file=paste0(out_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
 
 	numSVs = how_much_svs(voom, design, full_model, full_model_matrix, null_model_matrix)
 
 	### run sva
-	cat(paste0("# Compute surrugate variables\n", " Full model: ", full_model ,"\n", " Null model: ", null_model ,"\n"), file=log)
 	SVObject <- SmartSVA::smartsva.cpp(voom, full_model_matrix, mod0=null_model_matrix, n.sv=numSVs, alpha=1, B=200, VERBOSE=F)
 
 	### concatenate SVs to covariate dataframe 
@@ -142,15 +159,18 @@ run_sva = function(counts, design, full_model, null_model){
 	names(SVs) <- paste0("SV",1:ncol(SVs))
 	design <- cbind(design, SVs)
 	
-	#correlation_matrix(design, numSVs)
 	
 	write.table(cbind("ID"=rownames(design), design), file=paste0(out_path,"/design_svs.tsv"), sep="\t", row.names=F, quote=F)
 	
 	residuals <- t(resid(lm(as.formula(paste0('t(voom) ', "~", paste0("SV",1:numSVs, collapse="+"))), data=design)))
-	write.table(cbind("ID"=rownames(residuals), residuals), file=paste0(out_path,"/sv_residuals.tsv"), sep="\t", row.names=F, quote=F)
+	write.table(cbind("ID"=rownames(residuals), residuals), file=paste0(out_path,"/voom_counts.sv_residuals.tsv"), sep="\t", row.names=F, quote=F)
 
 	full_model = paste0(full_model, "+", paste0("SV",1:numSVs, collapse="+"))
-
+	cov = unlist(strsplit(full_model,"+",fixed=T))
+	cov[1] = unlist(strsplit(cov[1],"~",fixed=T))[2]
+	correlation_matrix(design[,cov], numSVs)
+	sv_evaluation(voom, design, annotations, numSVs)
+	
 	return(list(design=design, model=full_model))
 }
 
@@ -333,11 +353,12 @@ files = config$files
 
 
 ## read design file and list of sample to included in analysis
-des = prepare_design(files$design, files$included_samples, parameters)
+des = prepare_design(files$design, files$technical, files$included_samples, parameters)
 design = des$design
 full_model = des$full_model
 null_model = des$null_model
 included_samples = des$samples
+
 
 
 ## open count file
@@ -354,13 +375,16 @@ included_genes = gene_filtering(counts, normalized_counts, design, parameters, f
 included_samples = intersect(included_samples, colnames(counts))
 design <- design[included_samples,]
 clean_count = counts[included_genes, included_samples]
+cat(paste0("=> final number of included samples: ", length(included_samples),"\n"),file=log)
+cat(paste0("=> final number of included genes: ", length(included_genes),"\n"),file=log)
+
 write.table(cbind("ID"=rownames(clean_count), clean_count), file=paste0(out_path,"/clean_counts.tsv"), sep="\t", quote=F, row.names=F)
 
 
 ### run surrogate variable analysis
 if (parameters$run_SVA) {
 
-	sva = run_sva(clean_count, design, full_model, null_model)
+	sva = run_sva(clean_count, design, full_model, null_model, files$gene_annotations)
 	design = sva$design
 	full_model = sva$model
 

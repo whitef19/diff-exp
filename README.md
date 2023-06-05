@@ -7,18 +7,29 @@ Differential expression analysis for RNA-seq data. From raw quantification and T
 
 ## Requirements
 You'll need R and the following packages:
+- [ ] rjson
 - [ ] edgeR
 - [ ] isva
 - [ ] SmartSVA
 - [ ] limma
+
+Optionally if you want to produce plots:
 - [ ] ggplot2
+- [ ] reshape2
 - [ ] ggpubr
 - [ ] ggrepel
 
 
 ## Usage
 ```bash
+# run surrogate variables analysis 
+Rscript sv-analysis.R -c <path_to_config_file> -o <output_directory>
+
+# run differential expression analysis 
 Rscript de-analysis.R -c <path_to_config_file> -o <output_directory>
+
+# produce volcano plots 
+Rscript volcano.R <results_directory>
 ```
 
 
@@ -31,39 +42,38 @@ The config file must contains all options listed in the **config.tsv** file incl
 
 |variable_name|variable_type|variable_value|
 |:------------|:-----------:|:-------------|
-included_samples|	file|	/absolute/path/to/sample_list.txt
-read_count_matrix|	file|	/absolute/path/to/gene_reads.gct.gz
-normalized_count_matrix|	file|	NA
-design|	file|	/absolute/path/to/design.tsv
-gene_annotations|	file|	/absolute/path/to/gene_annotations.tsv
-mappability_scores|	file|	NA
-clean_counts|    file|    /absolute/path/to/clean_counts.tsv
-count_threshold|	parameter|	6
-tpm_threshold|	parameter|	0.5
-sample_frac_threshold|	parameter|	0.2
-mappability_threshold|	parameter|	NA
-contrast|	parameter|	status_diabetes
-model|	parameter|	status_diabetes+sex+age
-run_SVA|	parameter|	FALSE
-number_surrogate_variables|	parameter|	2
-
-
+file| |	
+ |included_samples|	/absolute/path/to/included_sample.txt
+ |read_count_matrix|/absolute/path/to/gene_reads.gct.gz
+ |normalized_count_matrix|	NA
+ |design|/absolute/path/to/design.tsv
+ |gene_annotations|	/absolute/path/to/gene_annotations.tsv
+ |mappability_scores|	NA
+ parameter| | 
+ |count_threshold|	6
+ |tpm_threshold|	0.5
+ |sample_frac_threshold|	0.2
+ |mappability_threshold|	NA
+ |contrast|	status_diabetes
+ |model|status_diabetes+sex+age
+ |number_surrogate_variables|2
 
 
 ## Precisions on files to provide
 
 #### included_samples (required)
 
-The file *included_samples* contains one column without header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed must be compatible with the IDs in *read_count_matrix*, *normalized_count_matrix* and *design*.   
+The file *included_samples* contains two columns with a header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed in the first column (design_id) must be compatible with the IDs in *design*. The sample IDs listed in the second column (quantification_table_id) must be compatible with the IDs in *read_count_matrix* (and *normalized_count_matrix*).   
 
 ```
-sample_1
-sample_2
-sample_3
-sample_4
+design_id       quantification_table_id
+sample_1	rnaseq1
+sample_2	rnaseq2
+sample_3	rnaseq3
+sample_4	rnaseq4
 ```
 
-#### read_count_matrix (required) and normalized_count_matrix 
+#### read_count_matrix (required) and normalized_count_matrix (optional)
 
 The file *read_count_matrix* should contains raw counts and *normalized_count_matrix* should contains normalized counts such as TPM, FPKM or RPKM. 
 The rows must contain the genes and the columns must contain the samples.
@@ -71,7 +81,7 @@ The rows must contain the genes and the columns must contain the samples.
 The file *normalized_count_matrix* is optional. *read_count_matrix* and *normalized_count_matrix* must have the same sample IDs.
 
 ```
-Name                Description     sample_1        sample_2
+Name                Description     rnaseq1        rnaseq2
 ENSG00000223972.5   GENE1           3               0
 ENSG00000227232.5   GENE2           184             150
 ENSG00000278267.1   GENE3           400             534
@@ -82,7 +92,7 @@ ENSG00000243485.5   GENE4           84              544
 #### design (required)
 
 The file *design* should contains all covariables used in *model*. The rows must contain the samples and the columns must contain the covariables.
-If you want to provided your own surrogate variables, add them to the design fill and name them SV1, SV2, SV3, ect. 
+(If you want to provided your own surrogate variables, add them to the design fill and name them SV1, SV2, SV3, ect.)
 
 ```
 ID          status_diabetes     sex     age     SV1          SV2
@@ -93,10 +103,10 @@ sample_4    1                   1       24      0.137        0.009
 
 ```
 
-#### mappability_scores
+#### mappability_scores (optional)
 
 The file *mappability_scores* is optional. 
-It should contains the mappability scores. This file should have two columns: gene IDs (compatible with the IDs in *read_count_matrix* and *normalized_count_matrix*) and mappability scores without a header.
+It should contains the mappability scores. This file should have two columns: gene IDs (compatible with the IDs in *read_count_matrix* and *normalized_count_matrix*) and mappability scores without header.
 
 ```
 ENSG00000223972.5	0.626473
@@ -105,7 +115,7 @@ ENSG00000278267.1	0.372085
 ENSG00000243485.5	0.908104
 ```
 
-#### gene_annotations
+#### gene_annotations (optional)
 
 The file *gene_annotations* is optional. It should contains a first column with the gene IDs (compatible with the IDs in *read_count_matrix* and *normalized_count_matrix*). It has a header with the first column named *ID*. You can provide any useful informations in the following columns that you want to retrieve in the final result table.
 

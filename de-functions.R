@@ -4,12 +4,31 @@
 
 usage = function(errM) 
 {
-	cat("\nUsage : Rscript de-analysis.R -c <Value> -o <Value>\n")
+	cat("\nUsage : Rscript {de|sv}-analysis.R -c <Value> -o <Value>\n")
 	cat("       -c      : config\n")
 	cat("       -o      : output directory\n")
 	cat("       -h      : this help\n\n")
 	stop(errM)
 }
+
+open_config = function(config_path) 
+{
+	if (!(file.exists(config_path))) {
+		usage("Error : config file not found")
+	}
+	
+	config = fromJSON(file=config_path)	
+	write(toJSON(config), paste0(out_path, "/config_file_used.json"))
+	
+	# verify paths
+	for (file in config$file) {
+		if (!is.na(file)){
+			if (!(file.exists(file))) {
+				stop(paste0("Error : ",file," file not found"))}}}
+
+	return(config)	
+}
+
 
 edger_norm_nomm <- function(counts) 
 {

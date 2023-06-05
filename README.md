@@ -36,34 +36,30 @@ Rscript volcano.R <results_directory>
 
 ## config file
 
-The config file must contains all options listed in the **config.tsv** file included in this git. Unused variables should be given the value NA.   
+The config file must contains all options listed in the **config.csv** file included in this git. Unused variables should be given the value NA.   
 
 #### Example of config file
 
-|variable_name|variable_type|variable_value|
-|:------------|:-----------:|:-------------|
-file| |	
  |included_samples|	/absolute/path/to/included_sample.txt
  |read_count_matrix|/absolute/path/to/gene_reads.gct.gz
- |normalized_count_matrix|	NA
- |design|/absolute/path/to/design.tsv
- |gene_annotations|	/absolute/path/to/gene_annotations.tsv
- |mappability_scores|	NA
- parameter| | 
  |count_threshold|	6
+ |normalized_count_matrix|	NA
  |tpm_threshold|	0.5
  |sample_frac_threshold|	0.2
+ |mappability_scores|	NA
  |mappability_threshold|	NA
+ |gene_annotations|	/absolute/path/to/gene_annotations.tsv
  |contrast|	status_diabetes
- |model|status_diabetes+sex+age
- |number_surrogate_variables|2
-
+ |full_model|status_diabetes+sex+age+sequencing_run
+ |null_model|sequencing_run
+ |estimated_variables_method|SV
+ |number_estimated_variables_to_include|0
 
 ## Precisions on files to provide
 
 #### included_samples (required)
 
-The file *included_samples* contains two columns with a header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed in the first column (design_id) must be compatible with the IDs in *design*. The sample IDs listed in the second column (quantification_table_id) must be compatible with the IDs in *read_count_matrix* (and *normalized_count_matrix*).   
+The file *included_samples* contains two columns with a header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed in the first column (design_id) must be compatible with the IDs in *design*. The sample IDs listed in the second column (quantification_table_id) must be compatible with the IDs in *read_count_matrix* (and *normalized_count_matrix*).
 
 ```
 design_id       quantification_table_id

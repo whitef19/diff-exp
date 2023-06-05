@@ -35,20 +35,30 @@ read_command_line_arguments = function(){
 }
 
 read_config_file = function() {
+
 	if (!(file.exists(config_path))) {
 		usage("Error : config file not found")
 	}
 	
+	get_extension <- unlist(strsplit(config_path, ".", fixed=T))
+	extension <- get_extension[length(get_extension)]
+
 	# config object is read only, set as global variable
-	config <<- fromJSON(file=config_path)	
-	write(toJSON(config), paste0(output_path, "/config_file_used.json"))
+	if ( extension == "csv" ) {
+		config <<- read.csv(config_path, header=T, sep="\t")
+		write.table(config, file=paste0(output_path, "/config_file_used.csv", sep="\t",quote=F,row.names=F))
+	} elif (extension == "json") {
+		config <<- fromJSON(file=config_path)	
+		write(toJSON(config), paste0(output_path, "/config_file_used.json"))
+	}
 	
 	# verify paths
 	for (file in config$file) {
 		if (!is.na(file)){
 			if (!(file.exists(file))) {
 				stop(paste0("Error : ",file," file not found"))}}}
-	cat(paste0("### see ", output_path, "/config_file_used.json for files and parameters used for this run.\n"), file=log_file)
+
+	cat(paste0("### see ", output_path, "/config_file_used.",extension," for files and parameters used for this run.\n"), file=log_file)
 }
 
 read_quantification_matrix = function(filename) {
@@ -109,8 +119,8 @@ prepare_dataframes <- function(mode="dea"){
 	full_model_list <<- unlist(strsplit(gsub(" ", "",config$parameter$full_model),"+", fixed=T))
 	
 	## add surrogate variable if any included
-	if ((as.numeric(config$parameter$number_estimated_variables) > 0) & mode=="dea"){
-		full_model_list <<- c(full_model_list, paste0(config$parameter$estimated_variables_method,1:as.numeric(config$parameter$number_estimated_variables)))
+	if ((as.numeric(config$parameter$number_estimated_variables_to_include) > 0) & mode=="dea"){
+		full_model_list <<- c(full_model_list, paste0(config$parameter$estimated_variables_method,1:as.numeric(config$parameter$number_estimated_variables_to_include)))
 	}
 
 	## read covariates dataframe and keep included samples and included variables

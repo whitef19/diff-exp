@@ -62,7 +62,7 @@ The config file must contains all options listed in the **config.csv** file incl
 The file *included_samples* contains two columns with a header. The file lists the sample IDs to include in the analysis, one ID per row. The sample IDs listed in the first column (design_id) must be compatible with the IDs in *design*. The sample IDs listed in the second column (quantification_table_id) must be compatible with the IDs in *read_count_matrix* (and *normalized_count_matrix*).
 
 ```
-design_id       quantification_table_id
+design_id   quantification_table_id
 sample_1	rnaseq1
 sample_2	rnaseq2
 sample_3	rnaseq3

@@ -1,0 +1,14 @@
+included_samples	example/included_samples.tsv
+read_count_matrix	example/reads.tsv
+normalized_count_matrix	NA
+gene_annotations	NA
+mappability_scores	NA
+count_threshold	6
+normalized_count_threshold	0.5
+sample_frac_threshold	0.2
+mappability_threshold	NA
+contrast	sex
+full_model	sex+age+batch
+null_model	batch
+estimated_variables_method	PC
+number_estimated_variables_to_include	1

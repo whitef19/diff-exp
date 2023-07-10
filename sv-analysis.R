@@ -3,22 +3,23 @@
 # by Frederique White
 # 2023-05-25 
 # 
-# Usage : Rscript sv-analysis.R -c path_to_config_file -o output_directory
+# Usage : Rscript sv-analysis.R -c path_to_config_file -d path_to_design_file -o output_directory
 # 
 # Libraries
+
 suppressMessages(library(rjson))
 suppressMessages(library(edgeR))
 suppressMessages(library(limma))
 suppressMessages(library(isva))
 suppressMessages(library(SmartSVA))
 
-set.seed(19) 
+set.seed(48121620) 
 
 #--------------------------------
 
 if(!exists("read_command_line_arguments", mode="function")) source("core.R")
 
-## init global variables and get arguments
+## init global variables and get arguments from command line
 read_command_line_arguments()
 
 ## read config file and verify if all provided files exist
@@ -26,7 +27,7 @@ read_config_file()
 
 ### read "included_samples"
 
-obj = prepare_dataframes("sva")
+obj = prepare_sva_dataframes()
 clean_design_df = obj$design_df
 clean_count_df = obj$count_df
 # also create global variables: 
@@ -34,8 +35,7 @@ clean_count_df = obj$count_df
 #	- full_model_list
 
 ## write clean dataframe:
-#write.table(cbind("ID"=rownames(clean_count_df), clean_count_df), file=paste0(output_path,"/clean_count_df.tsv"), sep="\t", quote=F, row.names=F)
-#write.table(cbind("ID"=rownames(clean_design_df), clean_design_df), file=paste0(output_path,"/clean_design_df_before_sva.tsv"), sep="\t", quote=F, row.names=F)
+write.table(cbind("ID"=rownames(clean_count_df), clean_count_df), file=paste0(output_path,"/clean_gene_counts.tsv"), sep="\t", quote=F, row.names=F)
 
 
 
@@ -43,8 +43,10 @@ clean_count_df = obj$count_df
 
 ## compute voom normalized counts for SVA
 normalization_obj = edgeR_normalization(clean_count_df, clean_design_df)
-#write.table(cbind("ID"=rownames(normalization_obj$Voom$E), normalization_obj$Voom$E), file=paste0(output_path, "/voom_counts.tsv" ), sep="\t", quote=F, row.names=F)
+
 sv_object = surrogate_variable_analysis(normalization_obj$Voom$E, clean_design_df)
+# also create global variables:
+# 	- num_svs
 SVs = as.data.frame(sv_object$sv)
 names(SVs) = paste0("SV",1:ncol(SVs))
 ## concatenate SVs to covariate dataframe 
@@ -70,3 +72,4 @@ latent_variable_evaluation(normalization_obj$Voom$E, clean_design_df[, included_
 included_covariate_list = c(full_model_list, names(SVs), names(PCs))
 create_corrplot(clean_design_df[, included_covariate_list], "SV_and_PC")
 
+cat(paste0("##### All done !: ",Sys.Date(), " at ", Sys.time(),"\n"), file=log_file)

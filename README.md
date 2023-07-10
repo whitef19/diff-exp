@@ -23,10 +23,10 @@ Optionally if you want to produce plots:
 ## Usage
 ```bash
 # run surrogate variables analysis 
-Rscript sv-analysis.R -c <path_to_config_file> -o <output_directory>
+Rscript sv-analysis.R -d <path_to_design_file> -c <path_to_config_file> -o <output_directory>
 
 # run differential expression analysis 
-Rscript de-analysis.R -c <path_to_config_file> -o <output_directory>
+Rscript de-analysis.R -d <path_to_design_file> -c <path_to_config_file> -o <output_directory>
 
 # produce volcano plots 
 Rscript volcano.R <results_directory>

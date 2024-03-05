@@ -61,9 +61,11 @@ clean_design_df = cbind(clean_design_df, SVs)
 
 write.table(cbind("ID"=rownames(clean_design_df), clean_design_df), file=paste0(output_path,"/full_design.tsv"), sep="\t", row.names=F, quote=F)
 
-### evaluate SVs 
+### Evaluate SVs. 
+### Visualize correlations between SVs and known variables provided by the design file. 
+### Visualize which genes contribute to SVs.
 included_covariate_list = c(full_model_list, names(SVs))
-create_corrplot(clean_design_df[, included_covariate_list], "SV")
+create_corrplot(clean_design_df, "SV")
 latent_variable_evaluation(normalization_obj$Voom$E, clean_design_df[, included_covariate_list], "SV")
 
 #included_covariate_list = c(full_model_list, names(PCs))

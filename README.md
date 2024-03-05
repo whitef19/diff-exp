@@ -2,7 +2,7 @@
 
 
 ## Description
-Differential expression analysis for RNA-seq data. From raw quantification and TPM table, the pipeline apply custom filters. Genes with high enough expression levels are used to compute surrogate variables to be included in DE analysis. DE analysis is then conducted by limma. 
+Differential expression analysis for RNA-seq data using *limma* R package. From raw quantification and TPM table, the pipeline apply custom filters. Genes with high expression levels are used to compute surrogate variables to be included in DE analysis. DE analysis is then conducted by *limma*. 
 
 
 ## Requirements
@@ -28,15 +28,13 @@ Rscript sv-analysis.R -d <path_to_design_file> -c <path_to_config_file> -o <outp
 # run differential expression analysis 
 Rscript de-analysis.R -d <path_to_design_file> -c <path_to_config_file> -o <output_directory>
 
-# produce volcano plots 
-Rscript volcano.R <results_directory>
 ```
 
 
 
 ## config file
 
-The config file must contains all options listed in the **config.csv** file included in this git. Unused variables should be given the value NA.   
+The config file must contains all options listed in the **config.csv** file included in this git (example directory). Unused variables should be given the value NA.   
 
 #### Example of config file
 

@@ -73,14 +73,17 @@ read_config_file = function() {
 	}
 
 	# verify paths
-	file_list = c("included_samples", "read_count_matrix", "normalized_count_matrix", "gene_annotations","mappability_scores")
+	file_list = c("included_samples", "read_count_matrix", "normalized_count_matrix", "gene_annotations", "mappability_scores")
 	for (file in file_list) {
-		file = unlist(config[file])
-		if (!is.na(file)) {
-			if (!(file.exists(file))) {
-				stop(paste0("Error : ",file," file not found"))}}
+		if (is.na(config[file]) | config[file]=="NA" | config[file]=="") {
+			config[file] = NA
+		} else {
+			if (!(file.exists(unlist(config[file])))){
+				stop(paste0("Error : ",file," file not found"))
+			}
+		}
 	}
-
+	config <<- config
 	cat(paste0("# see ", output_path, "/config_file_used.",extension," for files and parameters used for this run.\n"), file=log_file)
 	print("# FYI: config file looks fine")
 }

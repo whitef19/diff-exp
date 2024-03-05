@@ -1,4 +1,5 @@
 #--------------------------------
+# functions used by sv-analysis.R and de-analysis.R
 # # by Frederique White
 
 usage = function(errM) {
@@ -358,13 +359,28 @@ latent_variable_evaluation <- function(voom, design, type="SV"){
 
 
 create_corrplot = function(df, type) {
-	correlation_matrix = cor(na.omit(df))
-	write.table(cbind(ID=rownames(correlation_matrix),correlation_matrix), file=paste0(output_path, "/correlation_matrix_",type,".tsv"), sep="\t",quote=F, row.names=F)
 	
+	if (type =="SV") {
+		other_type = "PC" 
+	} else {
+		other_type = "SV"
+	}
+	
+	correlation_matrix = cor(na.omit(df))
+	
+	unknown_variable_col = grep(type, colnames(correlation_matrix), fixed = T)
+	known_variable_col = grep(type, colnames(correlation_matrix), fixed = T, invert = T, value = T)
+	known_variable_col = grep(other_type, known_variable_col, fixed = T, invert = T)
+	
+	figure_height = 6
+	if(length(known_variable_col) >= 10) { figure_height = 15 }
+
 	if (require(corrplot)){
-		pdf(paste0(output_path, "/correlation_plot.",type,".pdf"), width=12, height=12)
-		corrplot(correlation_matrix, tl.col="black",method = 'color')
+		pdf(paste0(output_path, "/correlation_plot.",type,".pdf"), width=15, height=c_height)
+		corrplot(correlation_matrix[known_variable_col, unknown_variable_col], tl.col="black", method = 'color', addCoef.col = 'black', is.corr=F)
 		dev.off()
+	} else {
+		write.table(cbind(ID=rownames(correlation_matrix), correlation_matrix), file=paste0(output_path, "/correlation_matrix_",type,".tsv"), sep="\t",quote=F, row.names=F)
 	}
 }
 
@@ -456,8 +472,6 @@ run_deseq <- function(count_df, design_df){
 
 volcano_plot <- function(nb_samples){
 
-
-	#pdf(paste0(output_path, "/volcanos.pdf"), width=15, height=12)
 	pdf(paste0(output_path, "/volcanos.pdf"), width=15, height=6)
 	
 	title = paste0("~ ", config$full_model, "\n + ", config$number_estimated_variables_to_include," ",config$estimated_variables_method,"s\n n = ", nb_samples, " samples")
@@ -486,7 +500,6 @@ volcano_plot <- function(nb_samples){
 	# 	theme(plot.title=element_text(size=5), legend.position="none")+
 	# 	geom_text_repel(data=subset(deseq_results, adj.P.Val < 0.05 | absFC >= logFC_threshold), aes(label=ID), show.legend=F, colour = "black")
 
-	#ggarrange(nominal_limma, nominal_deseq, adjusted_limma, adjusted_deseq, nrow=2, ncol=2)
 	print(ggarrange(nominal_limma, adjusted_limma, nrow=1, ncol=2))
 
 	dev.off()

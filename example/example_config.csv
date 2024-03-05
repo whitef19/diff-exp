@@ -10,5 +10,5 @@ mappability_threshold	NA
 contrast	sex
 full_model	sex+age+batch
 null_model	batch
-estimated_variables_method	PC
-number_estimated_variables_to_include	1
+estimated_variables_method	SV
+number_estimated_variables_to_include	10
